@@ -1,0 +1,37 @@
+# OPC UA connection settings for live_server.py.
+#
+# For a real PLC:
+#   1. Change `endpoint` to the PLC's OPC UA URL
+#      (typically opc.tcp://<plc-ip>:4840/... — check TIA Portal → OPC UA → Server address)
+#   2. If the PLC requires authentication, set env vars before starting:
+#        export PLC_USER="<username>"
+#        export PLC_PASS="<password>"
+#      Credentials are never stored in this file.
+#   3. If anonymous is rejected ("BadIdentityTokenRejected"), either
+#      enable "Permit access via anonymous user authentication" in
+#      TIA Portal, or use the env-var path above.
+#
+# The sim server (opcua_server.py) reads `endpoint`, `sample_interval_s`,
+# and `sim.namespace` from this file too.
+
+endpoint: "opc.tcp://127.0.0.1:4840/plc/"
+sample_interval_s: 1.0
+
+auth:
+  # "anonymous" | "password"
+  # If PLC_USER and PLC_PASS env vars are set, mode is forced to "password"
+  # regardless of this setting (env overrides file).
+  mode: anonymous
+
+security:
+  # "none" is standard for an isolated OT/fieldbus network.
+  # Other values (basic256sha256, aes128_sha256_rsaoaep, ...) require a
+  # certificate exchange with the PLC — add cert_path + key_path and flip
+  # the policy here. Not needed for anonymous/air-gapped setups.
+  policy: none
+  # cert_path: ./certs/client.der
+  # key_path:  ./certs/client.pem
+
+# Sim-only. Ignored when endpoint points at a real PLC.
+sim:
+  namespace: "https://plc-program.local/sim"

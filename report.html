@@ -1,0 +1,1462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Process Data Archive — Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --ink-3: #64748b;
+    --ink-4: #94a3b8;
+    --line: #e2e8f0;
+    --line-2: #cbd5e1;
+    --accent: #1d4ed8;
+    --accent-soft: #eff4ff;
+    --ok: #15803d;
+    --warn: #b45309;
+    --bad: #b91c1c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+  .wrap{max-width:1400px;margin:0 auto;padding:24px 28px 40px}
+
+  /* Report header */
+  header.report-head{
+    display:grid;grid-template-columns:1fr auto;align-items:end;gap:24px;
+    padding-bottom:16px;border-bottom:2px solid var(--ink);margin-bottom:22px;
+  }
+  .report-head h1{
+    font-size:24px;font-weight:600;margin:0 0 4px;letter-spacing:-0.01em;
+  }
+  .report-head .subtitle{font-size:13px;color:var(--ink-3);margin-bottom:2px}
+  .report-head .meta{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;font-size:12px}
+  .report-head .meta dt{color:var(--ink-3)}
+  .report-head .meta dd{margin:0;color:var(--ink-2)}
+  .badge{
+    display:inline-flex;align-items:center;gap:6px;padding:3px 8px;
+    border:1px solid var(--line-2);border-radius:3px;font-size:11px;color:var(--ink-2);background:var(--panel);
+  }
+  .badge .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+
+  /* KPI grid */
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:12px 14px}
+  .kpi .k{font-size:11px;color:var(--ink-3);letter-spacing:0.04em;text-transform:uppercase;margin-bottom:2px}
+  .kpi .v{font-size:22px;font-weight:600;line-height:1.1}
+  .kpi .u{font-size:11px;color:var(--ink-3);margin-left:4px;font-weight:400}
+
+  /* Panel */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;margin-bottom:22px}
+  .panel-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:12px 16px;border-bottom:1px solid var(--line);
+  }
+  .panel-head h2{font-size:14px;font-weight:600;margin:0;letter-spacing:0.01em}
+  .panel-head .hint{font-size:12px;color:var(--ink-3)}
+  .panel-body{padding:16px}
+
+  /* Controls */
+  .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:#fafbfc}
+  .ctrl-group{display:flex;align-items:center;gap:6px}
+  .ctrl-group label{font-size:12px;color:var(--ink-3)}
+  .btn{
+    background:var(--panel);border:1px solid var(--line-2);color:var(--ink-2);
+    padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;border-radius:3px;
+    transition:all .12s;
+  }
+  .btn:hover{border-color:var(--ink-4);color:var(--ink)}
+  .btn.on{background:var(--accent);color:white;border-color:var(--accent)}
+  .btn.ghost{background:transparent}
+  .sel{
+    font-family:inherit;font-size:12px;padding:4px 8px;border:1px solid var(--line-2);border-radius:3px;
+    background:var(--panel);color:var(--ink);min-width:180px;
+  }
+  .sel.dt{font-family:"IBM Plex Mono",ui-monospace,monospace;min-width:190px}
+  .sel:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+
+  /* Chart */
+  #chart{width:100%;height:440px}
+
+  /* Legend chips under chart */
+  .legend{display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px;border-top:1px solid var(--line);background:#fafbfc;min-height:40px;align-items:center}
+  .lchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px;border:1px solid var(--line-2);border-radius:3px;cursor:pointer;background:var(--panel)}
+  .lchip:hover{border-color:var(--ink-4)}
+  .lchip .sw{width:10px;height:10px;border-radius:2px}
+  .lchip .x{color:var(--ink-4);margin-left:4px}
+  .legend .hint{font-size:12px;color:var(--ink-3)}
+
+  /* Table */
+  table.tags{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.tags thead th{
+    text-align:left;font-weight:600;color:var(--ink-2);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;
+    padding:10px 12px;border-bottom:1px solid var(--line-2);background:#fafbfc;
+    position:sticky;top:0;cursor:pointer;user-select:none;white-space:nowrap;
+  }
+  table.tags thead th.num{text-align:right}
+  table.tags thead th .sort{color:var(--ink-4);margin-left:4px}
+  table.tags thead th.asc .sort::after{content:"▲"}
+  table.tags thead th.desc .sort::after{content:"▼"}
+  table.tags tbody td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.tags tbody td.num{text-align:right}
+  table.tags tbody tr:hover{background:#fafbfc}
+  table.tags tbody tr.active{background:var(--accent-soft)}
+  table.tags tbody tr.active td:first-child{border-left:3px solid var(--accent);padding-left:9px}
+  table.tags .tag-id{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink)}
+  table.tags .tag-desc{color:var(--ink-3);font-size:11px;margin-top:1px}
+  table.tags .cat-cell{text-transform:capitalize}
+  table.tags .bad{color:var(--bad)}
+  table.tags .warn{color:var(--warn)}
+
+  .source-tag{display:inline-block;font-size:10px;padding:1px 6px;border:1px solid var(--line-2);border-radius:2px;color:var(--ink-3);background:var(--panel)}
+
+  /* Compact dense stats row */
+  .footer-note{font-size:11.5px;color:var(--ink-3);margin-top:12px}
+
+  /* Print */
+  @media print{
+    body{background:white}
+    .wrap{max-width:none;padding:12mm}
+    .panel{box-shadow:none;page-break-inside:avoid}
+    .controls,.btn,.sel,.legend .hint,.no-print{display:none !important}
+    header.report-head{border-color:#000}
+    #chart{height:340px !important}
+    .kpis{grid-template-columns:repeat(6,1fr)}
+    table.tags thead th{position:static;background:white}
+  }
+
+  /* Mode switch (Archive vs Live) */
+  .mode-switch{display:inline-flex;border:1px solid var(--line-2);border-radius:3px;overflow:hidden;background:var(--panel);font-size:11.5px}
+  .mode-switch a{padding:5px 12px;color:var(--ink-2);text-decoration:none;border-right:1px solid var(--line)}
+  .mode-switch a:last-child{border-right:0}
+  .mode-switch a.on{background:var(--accent);color:#fff}
+  .mode-switch a:not(.on):hover{background:var(--accent-soft);color:var(--accent)}
+
+  /* Live-mode visibility: body.live hides .archive-only, body:not(.live) hides .live-only */
+  .live-only{display:none !important}
+  body.live .archive-only{display:none !important}
+  body.live .live-only{display:flex !important}
+
+  /* Delete icon on table rows (live mode only) */
+  body.live table.tags tbody td.row-actions{width:28px;text-align:center;padding:0}
+  body.live table.tags tbody td.row-actions button{
+    background:transparent;border:0;color:var(--ink-4);cursor:pointer;padding:6px 8px;border-radius:3px;font-size:12px;
+  }
+  body.live table.tags tbody td.row-actions button:hover{background:var(--accent-soft);color:var(--bad)}
+  .row-actions-head{width:28px}
+
+  /* Modal (Add tag) */
+  .modal-backdrop{
+    position:fixed;inset:0;background:rgba(15,23,42,0.45);
+    display:none;align-items:flex-start;justify-content:center;
+    z-index:100;padding:56px 16px;
+  }
+  .modal-backdrop.open{display:flex}
+  .modal{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:6px;
+    width:100%;max-width:720px;box-shadow:0 24px 60px -20px rgba(15,23,42,0.35);
+    display:flex;flex-direction:column;max-height:calc(100vh - 112px);
+  }
+  .modal-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;border-bottom:1px solid var(--line);
+  }
+  .modal-head h3{font-size:14px;font-weight:600;margin:0}
+  .modal-head .close{background:transparent;border:0;color:var(--ink-3);font-size:20px;line-height:1;cursor:pointer;padding:0 4px}
+  .modal-head .close:hover{color:var(--ink)}
+  .tabs{display:flex;border-bottom:1px solid var(--line);padding:0 18px;gap:12px;background:#fafbfc}
+  .tabs .tab{background:transparent;border:0;border-bottom:2px solid transparent;padding:10px 4px;font-size:12.5px;font-weight:500;color:var(--ink-3);cursor:pointer;font-family:inherit}
+  .tabs .tab.on{color:var(--accent);border-color:var(--accent)}
+  .tabs .tab:hover:not(.on){color:var(--ink-2)}
+  .modal-body{padding:16px 18px;overflow:auto}
+  .field-grid{display:grid;grid-template-columns:120px 1fr;gap:10px 12px;align-items:center;font-size:12.5px}
+  .field-grid label{color:var(--ink-3)}
+  .field-grid input, .field-grid select{
+    font-family:inherit;font-size:12.5px;padding:6px 8px;border:1px solid var(--line-2);border-radius:3px;background:var(--panel);color:var(--ink);
+  }
+  .field-grid input:focus, .field-grid select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  .field-grid input.mono{font-family:"IBM Plex Mono",monospace}
+  .field-grid .col-span-2{grid-column:span 2}
+  .field-grid .hint{font-size:11px;color:var(--ink-3)}
+
+  .browse-list{display:flex;flex-direction:column;gap:1px;font-size:12px}
+  .browse-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:3px;background:var(--panel)}
+  .browse-row:hover{border-color:var(--ink-4)}
+  .browse-row.registered{opacity:0.55;background:#fafbfc}
+  .browse-row .path{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .browse-row .dt{font-size:10.5px;color:var(--ink-3);padding:2px 6px;border:1px solid var(--line-2);border-radius:2px}
+  .browse-search{width:100%;margin-bottom:10px;font-family:inherit;font-size:12.5px;padding:7px 10px;border:1px solid var(--line-2);border-radius:3px}
+
+  .modal-foot{
+    display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line);
+  }
+  .modal-err{color:var(--bad);font-size:12px;margin-right:auto;align-self:center}
+
+  /* Toast */
+  .toast-wrap{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:6px;z-index:200}
+  .toast{
+    background:var(--panel);border:1px solid var(--line-2);border-left:3px solid var(--accent);
+    padding:10px 14px;border-radius:3px;font-size:12.5px;box-shadow:0 10px 30px -12px rgba(15,23,42,0.35);
+    max-width:360px;animation:toast-in .18s ease-out;
+  }
+  .toast.ok{border-left-color:var(--ok)}
+  .toast.err{border-left-color:var(--bad)}
+  @keyframes toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* Live connection pill */
+  .conn{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:3px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2)}
+  .conn .dot{width:7px;height:7px;border-radius:50%}
+  .conn.up .dot{background:var(--ok);box-shadow:0 0 0 0 rgba(21,128,61,.5);animation:pulse 2s infinite}
+  .conn.down .dot{background:var(--bad)}
+  .conn.paused .dot{background:var(--warn)}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(21,128,61,.5)}
+    70%{box-shadow:0 0 0 6px rgba(21,128,61,0)}
+    100%{box-shadow:0 0 0 0 rgba(21,128,61,0)}
+  }
+
+  /* Responsive */
+  @media (max-width:1100px){
+    .kpis{grid-template-columns:repeat(3,1fr)}
+    table.tags .hide-sm{display:none}
+  }
+  @media (max-width:700px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    #chart{height:320px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="report-head">
+  <div>
+    <div class="subtitle" id="m-subtitle">Process Data Archive</div>
+    <h1 id="m-title">WinCC telemetry report — PLC‑001</h1>
+    <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+      <span class="badge" id="m-badge"><span class="dot"></span><span id="m-badge-text">Archive read OK</span></span>
+      <nav class="mode-switch no-print" aria-label="Data source">
+        <a id="mode-archive" href="?mode=archive">Archive</a>
+        <a id="mode-live" href="?mode=live">Live</a>
+      </nav>
+    </div>
+  </div>
+  <dl class="meta mono">
+    <dt id="m-label-1">Report generated</dt><dd id="m-gen">—</dd>
+    <dt id="m-label-2">Window</dt><dd id="m-window">—</dd>
+    <dt id="m-label-3">Tags</dt><dd id="m-tags">—</dd>
+    <dt id="m-label-4">Sources</dt><dd id="m-sources">—</dd>
+  </dl>
+</header>
+
+<section class="kpis" id="kpis"></section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Time series</h2>
+    <span class="hint">Click rows to plot · use <b>Select all</b> to overlay everything in view</span>
+  </div>
+  <div class="controls no-print">
+    <div class="ctrl-group archive-only">
+      <label>Quick</label>
+      <button class="btn" data-range="all">All</button>
+      <button class="btn" data-range="7d">Last 7d</button>
+      <button class="btn" data-range="1d">Last 24h</button>
+      <button class="btn" data-range="1h">Last 1h</button>
+      <button class="btn" data-range="first">First day</button>
+    </div>
+    <div class="ctrl-group live-only">
+      <label>Window</label>
+      <button class="btn" data-window="60">1m</button>
+      <button class="btn on" data-window="300">5m</button>
+      <button class="btn" data-window="900">15m</button>
+      <button class="btn" data-window="3600">1h</button>
+    </div>
+    <div class="ctrl-group live-only">
+      <label>Stream</label>
+      <button class="btn" id="btn-pause">Pause</button>
+      <span class="conn down" id="conn-status"><span class="dot"></span><span id="conn-text">Connecting…</span></span>
+    </div>
+    <div class="ctrl-group live-only">
+      <label>Tags</label>
+      <button class="btn" id="btn-add-tag">+ Add tag</button>
+    </div>
+    <div class="ctrl-group">
+      <label>Selection</label>
+      <button class="btn" id="btn-select-all" title="Plot every tag currently shown in the table (respects Category / Source / Search filters)">Select all</button>
+      <button class="btn ghost" id="btn-clear">Clear</button>
+    </div>
+    <div class="ctrl-group">
+      <label>Options</label>
+      <button class="btn" id="btn-smooth">Smooth</button>
+      <button class="btn" id="btn-normalize" title="Rescale each series to 0–1 for shape comparison">Normalize</button>
+    </div>
+    <div class="ctrl-group" style="margin-left:auto">
+      <button class="btn" id="btn-png">Export chart (PNG)</button>
+      <button class="btn" id="btn-csv">Export selected (CSV)</button>
+      <button class="btn" id="btn-print">Print</button>
+    </div>
+  </div>
+  <div class="controls no-print archive-only" style="border-top:0;padding-top:6px">
+    <div class="ctrl-group">
+      <label for="rng-from">From</label>
+      <input class="sel dt" id="rng-from" type="datetime-local" step="1" />
+    </div>
+    <div class="ctrl-group">
+      <label for="rng-to">To</label>
+      <input class="sel dt" id="rng-to" type="datetime-local" step="1" />
+    </div>
+    <div class="ctrl-group">
+      <button class="btn" id="rng-apply">Apply</button>
+      <button class="btn ghost" id="rng-reset">Reset to full</button>
+    </div>
+    <div class="ctrl-group" style="margin-left:auto">
+      <span class="hint mono" id="rng-span">—</span>
+    </div>
+  </div>
+  <div id="chart"></div>
+  <div class="legend" id="legend"><span class="hint">No tags selected.</span></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Tag inventory</h2>
+    <span class="hint">Sortable · click a row to plot</span>
+  </div>
+  <div class="controls no-print">
+    <div class="ctrl-group">
+      <label for="f-cat">Category</label>
+      <select class="sel" id="f-cat"><option value="*">All</option></select>
+    </div>
+    <div class="ctrl-group">
+      <label for="f-src">Source</label>
+      <select class="sel" id="f-src"><option value="*">All</option></select>
+    </div>
+    <div class="ctrl-group" style="flex:1;min-width:220px">
+      <label for="f-search">Search</label>
+      <input class="sel" id="f-search" placeholder="Tag id or description…" style="flex:1" />
+    </div>
+    <div class="ctrl-group" style="margin-left:auto">
+      <span class="hint mono" id="row-count">— rows</span>
+    </div>
+  </div>
+  <div style="overflow:auto;max-height:640px">
+    <table class="tags" id="tbl">
+      <thead>
+        <tr>
+          <th data-key="id">Tag<span class="sort"></span></th>
+          <th data-key="category">Category<span class="sort"></span></th>
+          <th data-key="unit" class="hide-sm">Unit<span class="sort"></span></th>
+          <th data-key="source" class="hide-sm">Source<span class="sort"></span></th>
+          <th data-key="count" class="num">Samples<span class="sort"></span></th>
+          <th data-key="min" class="num">Min<span class="sort"></span></th>
+          <th data-key="max" class="num">Max<span class="sort"></span></th>
+          <th data-key="avg" class="num">Avg<span class="sort"></span></th>
+          <th data-key="bad" class="num">Invalid<span class="sort"></span></th>
+          <th data-key="first" class="num hide-sm">First<span class="sort"></span></th>
+          <th data-key="last" class="num hide-sm">Last<span class="sort"></span></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="panel-body footer-note">
+    Values are downsampled for plotting (LTTB‑style, ≤1500 points per tag). Statistics below are computed from the full raw archive. Timestamps in UTC.
+  </div>
+</section>
+
+<footer class="footer-note mono" style="display:flex;justify-content:space-between;padding:0 4px">
+  <span id="f-sources">Data_log_10.rdb · Data_log_52410.csv</span>
+  <span id="f-gen">—</span>
+</footer>
+
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────────────────
+// Mode gate: ?mode=archive (default) or ?mode=live
+// Archive reads ./dashboard_data.json (static WinCC export); Live streams
+// from the aiohttp server's /live/* endpoints (OPC UA ingest → SQLite → SSE).
+// ──────────────────────────────────────────────────────────────────────────
+const MODE = new URLSearchParams(location.search).get("mode") === "live" ? "live" : "archive";
+document.body.classList.toggle("live", MODE === "live");
+document.getElementById("mode-archive").classList.toggle("on", MODE === "archive");
+document.getElementById("mode-live").classList.toggle("on", MODE === "live");
+if (MODE === "live"){
+  document.getElementById("m-subtitle").textContent = "Live OPC UA telemetry";
+  document.getElementById("m-title").textContent = "PLC telemetry — live stream";
+  document.getElementById("m-badge-text").textContent = "Connecting…";
+  document.getElementById("m-label-1").textContent = "Page loaded";
+  document.getElementById("m-label-2").textContent = "Endpoint";
+  document.getElementById("m-label-3").textContent = "Tags";
+  document.getElementById("m-label-4").textContent = "Samples received";
+  document.getElementById("f-sources").textContent = "OPC UA stream";
+}
+
+(async () => {
+  if (MODE !== "archive") return;
+  const PALETTE = ["#1d4ed8","#0f766e","#b45309","#7c3aed","#be185d","#115e59","#0369a1","#a16207"];
+
+  const res = await fetch("./dashboard_data.json", {cache:"no-store"});
+  const bundle = await res.json();
+
+  // Flatten
+  const tags = [];
+  bundle.sources.forEach(src => {
+    src.tags.forEach(t => tags.push({
+      id: t.id,
+      label: t.label,
+      category: t.category,
+      unit: t.unit,
+      sourceName: src.name,
+      count: t.stats.count,
+      min: t.stats.min,
+      max: t.stats.max,
+      avg: t.stats.avg,
+      bad: t.stats.bad,
+      first: t.stats.first,
+      last: t.stats.last,
+      points: t.points,
+    }));
+  });
+
+  // Header meta
+  const firstAll = tags.map(t=>t.first).sort()[0];
+  const lastAll = tags.map(t=>t.last).sort().at(-1);
+  const spanDays = Math.max(1, Math.round((new Date(lastAll) - new Date(firstAll)) / 86400000));
+  document.getElementById("m-gen").textContent = (bundle.generated || "").replace("T"," ").replace("Z"," UTC");
+  document.getElementById("m-window").textContent = (firstAll||"?").slice(0,10) + " → " + (lastAll||"?").slice(0,10);
+  document.getElementById("m-tags").textContent = tags.length + " channels";
+  document.getElementById("m-sources").textContent = bundle.sources.map(s=>s.name).join(" · ");
+  document.getElementById("f-gen").textContent = "Generated " + (bundle.generated||"");
+
+  // KPIs
+  const totalSamples = tags.reduce((a,t)=>a+t.count,0);
+  const totalBad = tags.reduce((a,t)=>a+t.bad,0);
+  const badPct = totalSamples ? (100*totalBad/totalSamples) : 0;
+  const categories = [...new Set(tags.map(t=>t.category))];
+  const kpis = document.getElementById("kpis");
+  kpis.innerHTML = [
+    ["Channels", tags.length, ""],
+    ["Archive span", spanDays.toLocaleString(), "days"],
+    ["Total samples", totalSamples.toLocaleString(), "rows"],
+    ["Invalid samples", totalBad.toLocaleString(), badPct ? `(${badPct.toFixed(1)}%)` : ""],
+    ["Categories", categories.length, ""],
+    ["Sources", bundle.sources.length, "files"],
+  ].map(([k,v,u]) => `<div class="kpi"><div class="k">${k}</div><div class="v mono">${v}<span class="u">${u}</span></div></div>`).join("");
+
+  // Populate filter dropdowns
+  const fCat = document.getElementById("f-cat");
+  categories.sort().forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
+  const fSrc = document.getElementById("f-src");
+  [...new Set(tags.map(t=>t.sourceName))].forEach(s => fSrc.insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
+
+  // Chart
+  const chart = echarts.init(document.getElementById("chart"), null, {renderer:"canvas"});
+  const selected = new Set();
+  let smooth = false, normalize = false;
+
+  const baseOption = {
+    backgroundColor: "transparent",
+    grid: { left: 60, right: 24, top: 24, bottom: 64, containLabel: false },
+    animation: true,
+    tooltip: {
+      trigger:"axis",
+      axisPointer:{type:"cross", snap:true},
+      backgroundColor:"#ffffff",
+      borderColor:"#cbd5e1",
+      borderWidth:1,
+      textStyle:{color:"#0f172a",fontFamily:"IBM Plex Sans",fontSize:12},
+      padding:[8,10],
+    },
+    xAxis: {
+      type:"time",
+      axisLine:{lineStyle:{color:"#cbd5e1"}},
+      axisLabel:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:11},
+      splitLine:{show:true,lineStyle:{color:"#eef2f7"}},
+    },
+    yAxis: {
+      type:"value",
+      axisLine:{lineStyle:{color:"#cbd5e1"}},
+      axisLabel:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:11,formatter:v=>v.toLocaleString(undefined,{maximumFractionDigits:2})},
+      splitLine:{lineStyle:{color:"#eef2f7"}},
+    },
+    dataZoom:[
+      {type:"inside",throttle:40},
+      {type:"slider",height:22,bottom:20,backgroundColor:"#fafbfc",dataBackground:{lineStyle:{color:"#cbd5e1"},areaStyle:{color:"#eef2f7"}},fillerColor:"rgba(29,78,216,0.10)",borderColor:"#e2e8f0",handleStyle:{color:"#1d4ed8",borderColor:"#1d4ed8"},textStyle:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:10},labelFormatter: v => { const d = new Date(v); return isNaN(d) ? "" : d.toISOString().slice(0,16).replace("T"," "); }},
+    ],
+    legend:{show:false},
+    series: [],
+  };
+  chart.setOption(baseOption);
+
+  function rebuild(){
+    const series = [];
+    [...selected].forEach((id,i) => {
+      const t = tags.find(x=>x.id===id); if (!t) return;
+      const color = PALETTE[i % PALETTE.length];
+      let data = t.points;
+      if (normalize){
+        const rng = (t.max - t.min) || 1;
+        data = data.map(p => [p[0], (p[1]-t.min)/rng]);
+      }
+      series.push({
+        name: t.label,
+        type: "line",
+        smooth,
+        showSymbol: false,
+        sampling: "lttb",
+        lineStyle: { width: 1.4, color },
+        itemStyle: { color },
+        emphasis: { lineStyle: { width: 2 } },
+        data,
+      });
+    });
+    chart.setOption({
+      yAxis: { ...baseOption.yAxis, name: normalize ? "Normalized (0–1)" : "", nameTextStyle:{color:"#64748b",fontSize:11,fontFamily:"IBM Plex Sans"}, nameGap:10 },
+      series,
+    }, { replaceMerge:["series"], lazyUpdate:true });
+    renderLegend();
+  }
+
+  function renderLegend(){
+    const el = document.getElementById("legend");
+    const items = [...selected];
+    if (!items.length){ el.innerHTML = `<span class="hint">No tags selected.</span>`; return; }
+    el.innerHTML = "";
+    items.forEach((id,i) => {
+      const t = tags.find(x=>x.id===id);
+      const color = PALETTE[i % PALETTE.length];
+      const c = document.createElement("span");
+      c.className = "lchip";
+      c.innerHTML = `<span class="sw" style="background:${color}"></span>${escapeHtml(t.label)}${t.unit ? ` <span class="hint">(${t.unit})</span>`:""}<span class="x">×</span>`;
+      c.addEventListener("click", ()=>toggle(id));
+      el.appendChild(c);
+    });
+  }
+
+  const MAX_PLOT = 30;
+
+  function toggle(id){
+    if (selected.has(id)) selected.delete(id);
+    else {
+      if (selected.size >= MAX_PLOT) selected.delete(selected.values().next().value);
+      selected.add(id);
+    }
+    rebuild();
+    renderTable(); // to refresh active highlight
+    refreshRangeBounds();
+  }
+
+  function refreshRangeBounds(){
+    const b = selectionBounds();
+    const fromEl = document.getElementById("rng-from");
+    const toEl   = document.getElementById("rng-to");
+    if (!fromEl || !b) return;
+    fromEl.min = toEl.min = epochToLocalInput(b.first);
+    fromEl.max = toEl.max = epochToLocalInput(b.last);
+  }
+
+  // Table
+  let sortKey = "id", sortDir = "asc";
+  document.querySelectorAll("th[data-key]").forEach(th => {
+    th.addEventListener("click", () => {
+      const k = th.dataset.key;
+      if (sortKey === k) sortDir = sortDir === "asc" ? "desc" : "asc";
+      else { sortKey = k; sortDir = th.classList.contains("num") ? "desc" : "asc"; }
+      renderTable();
+    });
+  });
+
+  document.getElementById("f-cat").addEventListener("change", renderTable);
+  document.getElementById("f-src").addEventListener("change", renderTable);
+  document.getElementById("f-search").addEventListener("input", renderTable);
+
+  function filteredTags(){
+    const cat = document.getElementById("f-cat").value;
+    const src = document.getElementById("f-src").value;
+    const q = document.getElementById("f-search").value.trim().toLowerCase();
+    return tags.filter(t =>
+      (cat === "*" || t.category === cat) &&
+      (src === "*" || t.sourceName === src) &&
+      (!q || t.id.toLowerCase().includes(q) || (t.label||"").toLowerCase().includes(q))
+    );
+  }
+
+  function renderTable(){
+    let rows = filteredTags();
+
+    rows.sort((a,b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (sortKey === "first" || sortKey === "last") { av = av||""; bv = bv||""; }
+      if (typeof av === "number" && typeof bv === "number") return sortDir === "asc" ? av - bv : bv - av;
+      return sortDir === "asc" ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    });
+
+    // header arrows
+    document.querySelectorAll("th[data-key]").forEach(th => {
+      th.classList.remove("asc","desc");
+      if (th.dataset.key === sortKey) th.classList.add(sortDir);
+    });
+
+    const tbody = document.querySelector("#tbl tbody");
+    tbody.innerHTML = rows.map(t => `
+      <tr data-id="${t.id}" class="${selected.has(t.id) ? "active":""}">
+        <td>
+          <div class="tag-id">${escapeHtml(t.id)}</div>
+          <div class="tag-desc">${escapeHtml(t.label)}</div>
+        </td>
+        <td class="cat-cell">${t.category}</td>
+        <td class="hide-sm">${t.unit || "—"}</td>
+        <td class="hide-sm"><span class="source-tag">${escapeHtml(t.sourceName)}</span></td>
+        <td class="num mono">${fmt(t.count)}</td>
+        <td class="num mono">${fmtNum(t.min)}</td>
+        <td class="num mono">${fmtNum(t.max)}</td>
+        <td class="num mono">${fmtNum(t.avg)}</td>
+        <td class="num mono ${t.bad>0 ? 'warn':''}">${fmt(t.bad)}</td>
+        <td class="num mono hide-sm">${(t.first||"").replace("T"," ").slice(0,16)}</td>
+        <td class="num mono hide-sm">${(t.last||"").replace("T"," ").slice(0,16)}</td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll("tr").forEach(tr => {
+      tr.addEventListener("click", () => toggle(tr.dataset.id));
+    });
+
+    document.getElementById("row-count").textContent = rows.length.toLocaleString() + " rows";
+  }
+
+  // --- Range bounds come from the union of selected tags (or all tags if none picked)
+  function selectionBounds(){
+    const src = selected.size ? [...selected].map(id => tags.find(t=>t.id===id)) : tags;
+    if (!src.length) return null;
+    const first = Math.min(...src.map(t => new Date(t.first).getTime()));
+    const last  = Math.max(...src.map(t => new Date(t.last).getTime()));
+    return { first, last };
+  }
+
+  // --- Local <datetime-local> <-> epoch helpers
+  // datetime-local has no timezone; treat input as UTC (matches archive timestamps).
+  function epochToLocalInput(ms){
+    const d = new Date(ms);
+    const pad = n => String(n).padStart(2,"0");
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  }
+  function localInputToEpoch(s){
+    if (!s) return NaN;
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+    if (!m) return NaN;
+    return Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0));
+  }
+
+  // --- Apply a window to the chart and sync the inputs
+  let syncing = false;
+  function applyRange(startMs, endMs, { bump = true } = {}){
+    const b = selectionBounds();
+    if (!b) return;
+    startMs = Math.max(b.first, Math.min(b.last, startMs));
+    endMs   = Math.max(b.first, Math.min(b.last, endMs));
+    if (endMs <= startMs) endMs = startMs + 1000;
+    syncing = true;
+    if (bump) chart.dispatchAction({ type:"dataZoom", startValue:startMs, endValue:endMs });
+    document.getElementById("rng-from").value = epochToLocalInput(startMs);
+    document.getElementById("rng-to").value   = epochToLocalInput(endMs);
+    document.getElementById("rng-span").textContent = humanSpan(endMs - startMs);
+    syncing = false;
+  }
+
+  function humanSpan(ms){
+    if (ms <= 0) return "—";
+    const s = Math.round(ms/1000);
+    if (s < 90) return `${s}s window`;
+    const m = Math.round(s/60);
+    if (m < 90) return `${m}m window`;
+    const h = Math.round(m/6)/10;
+    if (h < 48) return `${h.toFixed(1)}h window`;
+    const d = ms/86400000;
+    return `${d.toFixed(d<10?1:0)}d window`;
+  }
+
+  function resetRangeToFull(){
+    const b = selectionBounds();
+    if (!b) return;
+    applyRange(b.first, b.last);
+  }
+
+  // --- Quick-range buttons
+  document.querySelectorAll(".btn[data-range]").forEach(b => {
+    b.addEventListener("click", () => {
+      const bounds = selectionBounds(); if (!bounds) return;
+      const { first, last } = bounds;
+      let s, e;
+      switch (b.dataset.range){
+        case "all":   s=first; e=last; break;
+        case "7d":    s=last-7*86400000; e=last; break;
+        case "1d":    s=last-86400000;   e=last; break;
+        case "1h":    s=last-3600000;    e=last; break;
+        case "first": s=first; e=first+86400000; break;
+      }
+      applyRange(s, e);
+    });
+  });
+
+  // --- Custom From/To inputs
+  function applyInputs(){
+    const s = localInputToEpoch(document.getElementById("rng-from").value);
+    const e = localInputToEpoch(document.getElementById("rng-to").value);
+    if (isNaN(s) || isNaN(e)) return;
+    applyRange(s, e);
+  }
+  document.getElementById("rng-apply").addEventListener("click", applyInputs);
+  document.getElementById("rng-from").addEventListener("change", applyInputs);
+  document.getElementById("rng-to").addEventListener("change", applyInputs);
+  document.getElementById("rng-from").addEventListener("keydown", e => { if (e.key === "Enter") applyInputs(); });
+  document.getElementById("rng-to").addEventListener("keydown", e => { if (e.key === "Enter") applyInputs(); });
+  document.getElementById("rng-reset").addEventListener("click", resetRangeToFull);
+
+  // --- Keep inputs synced when user drags the bottom zoom slider or wheels inside chart
+  chart.on("dataZoom", () => {
+    if (syncing) return;
+    const opt = chart.getOption();
+    const dz = (opt.dataZoom || []).find(d => d.type === "slider") || opt.dataZoom?.[0];
+    const b = selectionBounds(); if (!b || !dz) return;
+    const fullSpan = b.last - b.first;
+    const startPct = (dz.start ?? 0)/100, endPct = (dz.end ?? 100)/100;
+    const s = dz.startValue ?? (b.first + fullSpan*startPct);
+    const e = dz.endValue   ?? (b.first + fullSpan*endPct);
+    document.getElementById("rng-from").value = epochToLocalInput(s);
+    document.getElementById("rng-to").value   = epochToLocalInput(e);
+    document.getElementById("rng-span").textContent = humanSpan(e - s);
+  });
+
+  const toggleBtn = (btn, state, fn) => btn.addEventListener("click", () => { fn(); btn.classList.toggle("on"); rebuild(); });
+  toggleBtn(document.getElementById("btn-smooth"), smooth, ()=> smooth = !smooth);
+  toggleBtn(document.getElementById("btn-normalize"), normalize, ()=> normalize = !normalize);
+  document.getElementById("btn-clear").addEventListener("click", ()=>{ selected.clear(); rebuild(); renderTable(); refreshRangeBounds(); });
+
+  document.getElementById("btn-select-all").addEventListener("click", () => {
+    const rows = filteredTags();
+    if (!rows.length) return;
+    // Suggest normalize when the set has mixed units
+    const units = new Set(rows.map(t => t.unit || ""));
+    const mixed = units.size > 1;
+    selected.clear();
+    rows.slice(0, MAX_PLOT).forEach(t => selected.add(t.id));
+    if (mixed && !normalize){
+      normalize = true;
+      document.getElementById("btn-normalize").classList.add("on");
+    }
+    rebuild();
+    renderTable();
+    refreshRangeBounds();
+    if (rows.length > MAX_PLOT){
+      console.warn(`Capped selection at ${MAX_PLOT} tags of ${rows.length} filtered.`);
+    }
+  });
+
+  document.getElementById("btn-png").addEventListener("click", () => {
+    const url = chart.getDataURL({ type:"png", pixelRatio:2, backgroundColor:"#ffffff" });
+    const a = document.createElement("a"); a.href = url; a.download = "chart.png"; a.click();
+  });
+
+  document.getElementById("btn-csv").addEventListener("click", () => {
+    if (!selected.size){ alert("Select at least one tag."); return; }
+    const ids = [...selected];
+    // Long-form CSV: timestamp, tag_id, value
+    const lines = ["timestamp,tag_id,value"];
+    ids.forEach(id => {
+      const t = tags.find(x=>x.id===id);
+      t.points.forEach(([ts,v]) => lines.push(`${ts},${csvSafe(id)},${v}`));
+    });
+    const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "selected_tags.csv"; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  });
+
+  document.getElementById("btn-print").addEventListener("click", () => window.print());
+
+  window.addEventListener("resize", () => chart.resize());
+
+  // Initial render
+  renderTable();
+
+  // Seed one realistic plot so the engineer sees data immediately
+  const seed = tags.find(t => t.id === "FB_TE1_akt_Out_real") || tags[0];
+  if (seed) toggle(seed.id);
+
+  // Pin input bounds to available data and initialize with full window
+  (function initRangeInputs(){
+    const b = selectionBounds();
+    if (!b) return;
+    const fromEl = document.getElementById("rng-from");
+    const toEl   = document.getElementById("rng-to");
+    fromEl.min = toEl.min = epochToLocalInput(b.first);
+    fromEl.max = toEl.max = epochToLocalInput(b.last);
+    applyRange(b.first, b.last, { bump: false });
+  })();
+
+  // Utils
+  function fmt(n){ return (n ?? 0).toLocaleString(); }
+  function fmtNum(n){
+    if (n === null || n === undefined) return "—";
+    const abs = Math.abs(n);
+    const d = abs >= 100 ? 1 : abs >= 1 ? 2 : 3;
+    return n.toLocaleString(undefined, { minimumFractionDigits:d, maximumFractionDigits:d });
+  }
+  function escapeHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+  function csvSafe(s){
+    s = String(s ?? "");
+    return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }
+})();
+
+// ──────────────────────────────────────────────────────────────────────────
+// LIVE MODE
+// Drives the same chart/table surfaces from /live/tags + /live/history +
+// /live/stream (SSE). Keeps a bounded in-memory ring per tag so the UI
+// stats are meaningful over the chosen window without re-querying SQLite.
+// ──────────────────────────────────────────────────────────────────────────
+(async () => {
+  if (MODE !== "live") return;
+
+  const PALETTE = ["#1d4ed8","#0f766e","#b45309","#7c3aed","#be185d","#115e59","#0369a1","#a16207"];
+  const RING_CAP = 10800;     // ~3 h @ 1 Hz, bounded per tag
+  const MAX_PLOT = 30;
+
+  // ---- Load tag catalog -------------------------------------------------
+  const catalog = await (await fetch("./live/tags", {cache:"no-store"})).json();
+  const tags = catalog.tags.map(t => ({
+    id: t.id,
+    label: t.id,
+    category: t.category,
+    unit: t.unit,
+    sourceName: "OPC UA stream",
+    node: t.node,
+    count: 0, min: 0, max: 0, avg: 0, bad: 0,
+    first: "—", last: "—",
+    points: [],  // [ms, value]
+    cfgMin: t.min, cfgMax: t.max,
+  }));
+  const byId = new Map(tags.map(t => [t.id, t]));
+
+  // ---- State ------------------------------------------------------------
+  let windowSec = 300;
+  let paused = false;
+  let smooth = false, normalize = false;
+  const selected = new Set();
+  let samplesSince = 0;
+  let latestSampleTs = null;
+  let connected = false;
+  const pageLoadMs = Date.now();
+  const pageLoadISO = new Date().toISOString();
+
+  // ---- Header / meta ----------------------------------------------------
+  document.getElementById("m-gen").textContent = pageLoadISO.replace("T", " ").slice(0, 19) + "Z";
+  document.getElementById("m-window").textContent = catalog.endpoint;
+  document.getElementById("m-tags").textContent = tags.length + " channels";
+  document.getElementById("m-sources").textContent = "0";
+  document.getElementById("f-gen").textContent = "Page loaded " + pageLoadISO.slice(0,19) + "Z";
+
+  // Inject the Actions column header (live-only; archive mode never runs this IIFE)
+  (() => {
+    const headRow = document.querySelector("#tbl thead tr");
+    if (headRow && !headRow.querySelector(".row-actions-head")){
+      headRow.insertAdjacentHTML("beforeend", `<th class="row-actions-head no-print">&nbsp;</th>`);
+    }
+  })();
+
+  // ---- KPIs -------------------------------------------------------------
+  const kpis = document.getElementById("kpis");
+  kpis.innerHTML = [
+    ["Tags available", tags.length, ""],
+    ["Sampling", (catalog.sample_interval_s || 1) + "s", "interval"],
+    ["Plotted", "0", "selected"],
+    ["Samples", "0", "received"],
+    ["Uptime", "0s", ""],
+    ["Last sample", "—", ""],
+  ].map(([k,v,u]) => `<div class="kpi"><div class="k">${k}</div><div class="v mono">${v}<span class="u">${u}</span></div></div>`).join("");
+  const kpiV = [...kpis.querySelectorAll(".kpi .v")];
+  function humanDur(s){
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s/60) + "m " + (s%60) + "s";
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+    return h + "h " + m + "m";
+  }
+  function updateKpis(){
+    kpiV[2].innerHTML = `${selected.size}<span class="u">selected</span>`;
+    kpiV[3].innerHTML = `${samplesSince.toLocaleString()}<span class="u">received</span>`;
+    kpiV[4].innerHTML = `${humanDur(Math.round((Date.now()-pageLoadMs)/1000))}<span class="u"></span>`;
+    kpiV[5].innerHTML = latestSampleTs
+      ? `${new Date(latestSampleTs*1000).toISOString().slice(11,19)}<span class="u">UTC</span>`
+      : `—<span class="u"></span>`;
+    document.getElementById("m-sources").textContent = samplesSince.toLocaleString();
+  }
+
+  // ---- Filters ----------------------------------------------------------
+  const fCat = document.getElementById("f-cat");
+  const categories = [...new Set(tags.map(t=>t.category))].sort();
+  categories.forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
+  const fSrc = document.getElementById("f-src");
+  fSrc.insertAdjacentHTML("beforeend", `<option value="OPC UA stream">OPC UA stream</option>`);
+
+  // ---- Chart ------------------------------------------------------------
+  const chart = echarts.init(document.getElementById("chart"), null, {renderer:"canvas"});
+  const baseOption = {
+    backgroundColor: "transparent",
+    grid: { left: 60, right: 24, top: 24, bottom: 40, containLabel: false },
+    animation: false,
+    tooltip: {
+      trigger:"axis",
+      axisPointer:{type:"cross", snap:true},
+      backgroundColor:"#ffffff",
+      borderColor:"#cbd5e1",
+      borderWidth:1,
+      textStyle:{color:"#0f172a",fontFamily:"IBM Plex Sans",fontSize:12},
+      padding:[8,10],
+    },
+    xAxis: {
+      type:"time",
+      axisLine:{lineStyle:{color:"#cbd5e1"}},
+      axisLabel:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:11},
+      splitLine:{show:true,lineStyle:{color:"#eef2f7"}},
+    },
+    yAxis: {
+      type:"value",
+      axisLine:{lineStyle:{color:"#cbd5e1"}},
+      axisLabel:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:11,formatter:v=>v.toLocaleString(undefined,{maximumFractionDigits:2})},
+      splitLine:{lineStyle:{color:"#eef2f7"}},
+    },
+    legend:{show:false},
+    series: [],
+  };
+  chart.setOption(baseOption);
+
+  let pendingRedraw = false;
+  function scheduleRedraw(){
+    if (paused || pendingRedraw) return;
+    pendingRedraw = true;
+    requestAnimationFrame(() => { pendingRedraw = false; rebuild(); });
+  }
+
+  function rebuild(){
+    const now = Date.now();
+    const cutoff = now - windowSec * 1000;
+    const series = [];
+    [...selected].forEach((id,i) => {
+      const t = byId.get(id); if (!t) return;
+      const color = PALETTE[i % PALETTE.length];
+      // Lower-bound binary search to trim to window
+      let lo = 0, hi = t.points.length;
+      while (lo < hi){ const m = (lo+hi)>>1; if (t.points[m][0] < cutoff) lo = m+1; else hi = m; }
+      let data = t.points.slice(lo);
+      if (normalize && data.length){
+        const rng = (t.max - t.min) || 1;
+        data = data.map(p => [p[0], (p[1]-t.min)/rng]);
+      }
+      series.push({
+        name: t.label, type:"line", smooth, showSymbol:false, sampling:"lttb",
+        lineStyle:{width:1.4,color}, itemStyle:{color}, data,
+      });
+    });
+    chart.setOption({
+      xAxis: { ...baseOption.xAxis, min: cutoff, max: now },
+      yAxis: { ...baseOption.yAxis, name: normalize ? "Normalized (0–1)" : "", nameTextStyle:{color:"#64748b",fontSize:11,fontFamily:"IBM Plex Sans"}, nameGap:10 },
+      series,
+    }, { replaceMerge:["series"], lazyUpdate:true });
+    renderLegend();
+  }
+
+  function renderLegend(){
+    const el = document.getElementById("legend");
+    const items = [...selected];
+    if (!items.length){ el.innerHTML = `<span class="hint">No tags selected. Click a row below to plot.</span>`; return; }
+    el.innerHTML = "";
+    items.forEach((id,i) => {
+      const t = byId.get(id); if (!t) return;
+      const color = PALETTE[i % PALETTE.length];
+      const latest = t.points.length ? t.points[t.points.length-1][1] : null;
+      const c = document.createElement("span");
+      c.className = "lchip";
+      c.innerHTML = `<span class="sw" style="background:${color}"></span>${escapeHtml(t.id)}${t.unit ? ` <span class="hint">(${t.unit})</span>`:""}${latest!=null ? ` <b class="mono" style="margin-left:4px">${fmtNum(latest)}</b>`:""}<span class="x">×</span>`;
+      c.addEventListener("click", () => toggle(id));
+      el.appendChild(c);
+    });
+  }
+
+  // ---- Table ------------------------------------------------------------
+  let sortKey = "id", sortDir = "asc";
+  document.querySelectorAll("th[data-key]").forEach(th => {
+    th.addEventListener("click", () => {
+      const k = th.dataset.key;
+      if (sortKey === k) sortDir = sortDir === "asc" ? "desc" : "asc";
+      else { sortKey = k; sortDir = th.classList.contains("num") ? "desc" : "asc"; }
+      renderTable();
+    });
+  });
+  document.getElementById("f-cat").addEventListener("change", renderTable);
+  document.getElementById("f-src").addEventListener("change", renderTable);
+  document.getElementById("f-search").addEventListener("input", renderTable);
+
+  function filteredTags(){
+    const cat = document.getElementById("f-cat").value;
+    const src = document.getElementById("f-src").value;
+    const q = document.getElementById("f-search").value.trim().toLowerCase();
+    return tags.filter(t =>
+      (cat === "*" || t.category === cat) &&
+      (src === "*" || t.sourceName === src) &&
+      (!q || t.id.toLowerCase().includes(q) || (t.label||"").toLowerCase().includes(q))
+    );
+  }
+
+  function recomputeStats(t){
+    if (!t.points.length){ t.min=0; t.max=0; t.avg=0; t.count=0; t.first="—"; t.last="—"; return; }
+    let mn=Infinity, mx=-Infinity, sum=0;
+    for (const [,v] of t.points){ if (v<mn) mn=v; if (v>mx) mx=v; sum+=v; }
+    t.min=mn; t.max=mx; t.avg=sum/t.points.length; t.count=t.points.length;
+    t.first = new Date(t.points[0][0]).toISOString().replace("T"," ").slice(0,19);
+    t.last  = new Date(t.points[t.points.length-1][0]).toISOString().replace("T"," ").slice(0,19);
+  }
+
+  function renderTable(){
+    // Recompute stats lazily here — cheap at 21 tags.
+    tags.forEach(recomputeStats);
+
+    let rows = filteredTags();
+    rows.sort((a,b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (sortKey === "first" || sortKey === "last") { av = av||""; bv = bv||""; }
+      if (typeof av === "number" && typeof bv === "number") return sortDir === "asc" ? av - bv : bv - av;
+      return sortDir === "asc" ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    });
+    document.querySelectorAll("th[data-key]").forEach(th => {
+      th.classList.remove("asc","desc");
+      if (th.dataset.key === sortKey) th.classList.add(sortDir);
+    });
+
+    const tbody = document.querySelector("#tbl tbody");
+    tbody.innerHTML = rows.map(t => `
+      <tr data-id="${escapeHtml(t.id)}" class="${selected.has(t.id) ? "active":""}">
+        <td>
+          <div class="tag-id">${escapeHtml(t.id)}</div>
+          <div class="tag-desc">${escapeHtml(t.node)}</div>
+        </td>
+        <td class="cat-cell">${t.category}</td>
+        <td class="hide-sm">${t.unit || "—"}</td>
+        <td class="hide-sm"><span class="source-tag">${escapeHtml(t.sourceName)}</span></td>
+        <td class="num mono">${fmt(t.count)}</td>
+        <td class="num mono">${fmtNum(t.min)}</td>
+        <td class="num mono">${fmtNum(t.max)}</td>
+        <td class="num mono">${fmtNum(t.avg)}</td>
+        <td class="num mono">${fmt(t.bad)}</td>
+        <td class="num mono hide-sm">${(t.first||"").slice(0,19)}</td>
+        <td class="num mono hide-sm">${(t.last||"").slice(0,19)}</td>
+        <td class="row-actions no-print"><button title="Delete tag (history retained)" data-del="${escapeHtml(t.id)}">×</button></td>
+      </tr>`).join("");
+    tbody.querySelectorAll("tr").forEach(tr => {
+      tr.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-del]")){
+          ev.stopPropagation();
+          deleteTag(ev.target.closest("[data-del]").dataset.del);
+          return;
+        }
+        toggle(tr.dataset.id);
+      });
+    });
+    document.getElementById("row-count").textContent = rows.length.toLocaleString() + " rows";
+  }
+
+  // ---- Selection + backfill ---------------------------------------------
+  async function backfillHistory(id){
+    const since = (Date.now() - windowSec*1000) / 1000;
+    try{
+      const r = await fetch(`./live/history?tags=${encodeURIComponent(id)}&since=${since}&limit=5000`, {cache:"no-store"});
+      const j = await r.json();
+      const t = byId.get(id); if (!t || !j.series || !j.series.length) return;
+      // Merge without dupes; incoming ts is seconds, store as ms
+      const existing = new Set(t.points.map(p => p[0]));
+      for (const [ts, v] of j.series[0].points){
+        const ms = ts * 1000;
+        if (!existing.has(ms)) t.points.push([ms, v]);
+      }
+      t.points.sort((a,b) => a[0] - b[0]);
+      if (t.points.length > RING_CAP) t.points.splice(0, t.points.length - RING_CAP);
+      scheduleRedraw();
+    } catch(e){ console.warn("backfill", id, e); }
+  }
+
+  function toggle(id){
+    if (selected.has(id)) selected.delete(id);
+    else {
+      if (selected.size >= MAX_PLOT) selected.delete(selected.values().next().value);
+      selected.add(id);
+      backfillHistory(id);
+    }
+    rebuild();
+    renderTable();
+  }
+
+  // ---- Stream -----------------------------------------------------------
+  let connInfo = { endpoint: catalog.endpoint, auth_mode: catalog.auth_mode || "anonymous", security_policy: catalog.security_policy || "none" };
+  function setStatus(cls, text){
+    const s = document.getElementById("conn-status");
+    s.classList.remove("up","down","paused"); s.classList.add(cls);
+    const authBit = connInfo.auth_mode ? ` · ${connInfo.auth_mode}` : "";
+    document.getElementById("conn-text").textContent = text + (cls === "up" ? authBit : "");
+    const badge = document.getElementById("m-badge");
+    const bt = document.getElementById("m-badge-text");
+    const dot = badge.querySelector(".dot");
+    if (cls === "up"){ dot.style.background = "var(--ok)"; bt.textContent = `Live · ${tags.length} tags${authBit}`; }
+    else if (cls === "down"){ dot.style.background = "var(--bad)"; bt.textContent = "Disconnected"; }
+    else if (cls === "paused"){ dot.style.background = "var(--warn)"; bt.textContent = "Paused"; }
+  }
+
+  function onSample(s){
+    const t = byId.get(s.id); if (!t) return;
+    const ms = s.ts * 1000;
+    t.points.push([ms, s.value]);
+    if (t.points.length > RING_CAP) t.points.shift();
+    samplesSince++;
+    latestSampleTs = s.ts;
+    if (selected.has(s.id)) scheduleRedraw();
+  }
+
+  function connect(){
+    const es = new EventSource("./live/stream");
+    es.onopen = () => { connected = true; setStatus("up", "Connected"); };
+    es.onmessage = ev => { try { onSample(JSON.parse(ev.data)); } catch(e){} };
+    es.onerror = () => { connected = false; if (!paused) setStatus("down", "Reconnecting…"); };
+    return es;
+  }
+  connect();
+
+  // ---- Window / pause / options ----------------------------------------
+  document.querySelectorAll(".btn[data-window]").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".btn[data-window]").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      windowSec = parseInt(b.dataset.window, 10);
+      // Fill the new window from SQLite for anything selected
+      [...selected].forEach(backfillHistory);
+      rebuild();
+    });
+  });
+
+  document.getElementById("btn-pause").addEventListener("click", () => {
+    paused = !paused;
+    const b = document.getElementById("btn-pause");
+    b.classList.toggle("on", paused);
+    b.textContent = paused ? "Resume" : "Pause";
+    if (paused) setStatus("paused", "Paused");
+    else setStatus(connected ? "up" : "down", connected ? "Connected" : "Reconnecting…");
+  });
+
+  const toggleBtn = (btn, fn) => btn.addEventListener("click", () => { fn(); btn.classList.toggle("on"); rebuild(); });
+  toggleBtn(document.getElementById("btn-smooth"),    () => smooth = !smooth);
+  toggleBtn(document.getElementById("btn-normalize"), () => normalize = !normalize);
+
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    selected.clear(); rebuild(); renderTable();
+  });
+
+  document.getElementById("btn-select-all").addEventListener("click", () => {
+    const rows = filteredTags(); if (!rows.length) return;
+    const units = new Set(rows.map(t => t.unit || ""));
+    const mixed = units.size > 1;
+    selected.clear();
+    rows.slice(0, MAX_PLOT).forEach(t => selected.add(t.id));
+    if (mixed && !normalize){
+      normalize = true;
+      document.getElementById("btn-normalize").classList.add("on");
+    }
+    rows.slice(0, MAX_PLOT).forEach(t => backfillHistory(t.id));
+    rebuild(); renderTable();
+  });
+
+  // ---- Exports ----------------------------------------------------------
+  document.getElementById("btn-png").addEventListener("click", () => {
+    const url = chart.getDataURL({ type:"png", pixelRatio:2, backgroundColor:"#ffffff" });
+    const a = document.createElement("a"); a.href = url; a.download = "live_chart.png"; a.click();
+  });
+
+  document.getElementById("btn-csv").addEventListener("click", () => {
+    if (!selected.size){ alert("Select at least one tag."); return; }
+    const lines = ["timestamp_iso_utc,tag_id,value"];
+    [...selected].forEach(id => {
+      const t = byId.get(id); if (!t) return;
+      t.points.forEach(([ms, v]) => lines.push(`${new Date(ms).toISOString()},${csvSafe(id)},${v}`));
+    });
+    const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "live_samples.csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+
+  document.getElementById("btn-print").addEventListener("click", () => window.print());
+
+  window.addEventListener("resize", () => chart.resize());
+
+  // ---- Initial paint ----------------------------------------------------
+  renderTable();
+  rebuild();
+  updateKpis();
+
+  // Rolling tick: recompute stats, refresh table + KPIs, and scroll the
+  // chart window forward even if no new samples are arriving.
+  setInterval(() => {
+    updateKpis();
+    renderTable();
+    if (!paused) scheduleRedraw();
+  }, 2000);
+
+  // ---- Tag management (add / browse / delete) --------------------------
+  const modalEl = document.getElementById("tag-modal");
+
+  function openModal(){
+    modalEl.classList.add("open");
+    // Reset to Browse tab + refresh list
+    selectTab("browse");
+    document.getElementById("modal-err").textContent = "";
+    ["f-name","f-node","f-unit"].forEach(id => { const e = document.getElementById(id); if (e) e.value = ""; });
+    document.getElementById("f-category").value = "other";
+    document.getElementById("f-min").value = "0";
+    document.getElementById("f-max").value = "100";
+    fetchBrowse();
+  }
+  function closeModal(){ modalEl.classList.remove("open"); }
+
+  function selectTab(name){
+    document.querySelectorAll(".tabs .tab").forEach(x => x.classList.toggle("on", x.dataset.tab === name));
+    document.querySelectorAll(".tab-panel").forEach(p => p.style.display = p.dataset.panel === name ? "block" : "none");
+  }
+
+  document.getElementById("btn-add-tag").addEventListener("click", openModal);
+  modalEl.addEventListener("click", ev => { if (ev.target === modalEl) closeModal(); });
+  document.getElementById("modal-close").addEventListener("click", closeModal);
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.querySelectorAll(".tabs .tab").forEach(t => t.addEventListener("click", () => selectTab(t.dataset.tab)));
+
+  async function fetchBrowse(){
+    const list = document.getElementById("browse-list");
+    const q = document.getElementById("browse-search").value.trim().toLowerCase();
+    list.innerHTML = `<div class="hint">Loading address space…</div>`;
+    try{
+      const r = await fetch("./live/browse", {cache:"no-store"});
+      const j = await r.json();
+      if (!r.ok){ list.innerHTML = `<div class="hint" style="color:var(--bad)">${escapeHtml(j.error || r.statusText)}</div>`; return; }
+      const nodes = (j.nodes || []).filter(n => !q || n.path.toLowerCase().includes(q) || n.name.toLowerCase().includes(q));
+      if (!nodes.length){ list.innerHTML = `<div class="hint">No nodes match.</div>`; return; }
+      list.innerHTML = "";
+      nodes.forEach(n => {
+        const row = document.createElement("div");
+        row.className = "browse-row" + (n.registered ? " registered" : "");
+        row.innerHTML = `
+          <div>
+            <div class="mono" style="font-size:11.5px">${escapeHtml(n.name)}</div>
+            <div class="path">${escapeHtml(n.path)}</div>
+          </div>
+          <div class="dt">${escapeHtml(n.data_type)}</div>
+          <button class="btn" ${n.registered ? "disabled" : ""}>${n.registered ? "Added" : "Add →"}</button>`;
+        if (!n.registered){
+          row.querySelector("button").addEventListener("click", () => {
+            // Prefill Manual tab with what we know; engineer confirms unit + category
+            selectTab("manual");
+            document.getElementById("f-name").value = n.name;
+            document.getElementById("f-node").value = n.node;
+            document.getElementById("f-unit").focus();
+          });
+        }
+        list.appendChild(row);
+      });
+      if (j.capped) list.insertAdjacentHTML("beforeend", `<div class="hint" style="margin-top:8px">Result list is capped. Use search to narrow.</div>`);
+    } catch(e){
+      list.innerHTML = `<div class="hint" style="color:var(--bad)">${escapeHtml(String(e))}</div>`;
+    }
+  }
+  document.getElementById("browse-search").addEventListener("input", () => {
+    clearTimeout(window.__browseDebounce);
+    window.__browseDebounce = setTimeout(fetchBrowse, 200);
+  });
+  document.getElementById("browse-refresh").addEventListener("click", fetchBrowse);
+
+  document.getElementById("modal-save").addEventListener("click", async () => {
+    const err = document.getElementById("modal-err"); err.textContent = "";
+    const body = {
+      name:     document.getElementById("f-name").value.trim(),
+      node:     document.getElementById("f-node").value.trim(),
+      category: document.getElementById("f-category").value.trim() || "other",
+      unit:     document.getElementById("f-unit").value.trim(),
+      min:      parseFloat(document.getElementById("f-min").value),
+      max:      parseFloat(document.getElementById("f-max").value),
+    };
+    if (!body.name || !body.node){ err.textContent = "Name and NodeId are required."; return; }
+    if (!Number.isFinite(body.min)) body.min = 0;
+    if (!Number.isFinite(body.max)) body.max = 100;
+    try{
+      const r = await fetch("./live/tags", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok){ err.textContent = j.error || r.statusText; return; }
+      toast(`Added '${body.name}'`, "ok");
+      closeModal();
+      await refreshTagCatalog();
+    } catch(e){ err.textContent = String(e); }
+  });
+
+  async function deleteTag(name){
+    if (!confirm(`Delete tag '${name}'?\nHistorical samples in SQLite are kept.`)) return;
+    try{
+      const r = await fetch(`./live/tags/${encodeURIComponent(name)}`, {method: "DELETE"});
+      const j = await r.json();
+      if (!r.ok){ toast(j.error || r.statusText, "err"); return; }
+      toast(`Deleted '${name}'`, "ok");
+      selected.delete(name);
+      await refreshTagCatalog();
+    } catch(e){ toast(String(e), "err"); }
+  }
+  // Expose so row click handler in renderTable can call it
+  window.deleteTag = deleteTag;
+
+  async function refreshTagCatalog(){
+    try{
+      const r = await fetch("./live/tags", {cache:"no-store"});
+      const j = await r.json();
+      connInfo = { endpoint: j.endpoint, auth_mode: j.auth_mode, security_policy: j.security_policy };
+      // Preserve ring buffers for tags that still exist
+      const prevById = new Map(tags.map(t => [t.id, t]));
+      const newTags = j.tags.map(t => {
+        const prev = prevById.get(t.id);
+        if (prev){ prev.category = t.category; prev.unit = t.unit; prev.cfgMin = t.min; prev.cfgMax = t.max; prev.node = t.node; return prev; }
+        return {
+          id: t.id, label: t.id, category: t.category, unit: t.unit,
+          sourceName: "OPC UA stream", node: t.node,
+          count: 0, min: 0, max: 0, avg: 0, bad: 0, first: "—", last: "—",
+          points: [], cfgMin: t.min, cfgMax: t.max,
+        };
+      });
+      tags.length = 0; tags.push(...newTags);
+      byId.clear(); newTags.forEach(t => byId.set(t.id, t));
+
+      // Refresh Category filter options without losing the current selection
+      const fCat = document.getElementById("f-cat");
+      const oldVal = fCat.value;
+      [...fCat.querySelectorAll("option")].slice(1).forEach(o => o.remove());
+      [...new Set(newTags.map(t=>t.category))].sort().forEach(c =>
+        fCat.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`));
+      if ([...fCat.options].some(o => o.value === oldVal)) fCat.value = oldVal;
+
+      document.getElementById("m-tags").textContent = newTags.length + " channels";
+      // Prime ring buffers for any newly-selected tags (none right now after add, but safe)
+      [...selected].forEach(id => { if (byId.has(id)) backfillHistory(id); });
+      renderTable();
+      rebuild();
+      // Refresh the header badge too
+      if (connected) setStatus("up", "Connected");
+    } catch(e){ console.warn("refreshTagCatalog", e); }
+  }
+
+  // ---- Toast ------------------------------------------------------------
+  function toast(msg, kind="ok", ms=3000){
+    const wrap = document.getElementById("toast-wrap");
+    const t = document.createElement("div");
+    t.className = "toast " + kind;
+    t.textContent = msg;
+    wrap.appendChild(t);
+    setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .2s"; }, ms - 200);
+    setTimeout(() => t.remove(), ms);
+  }
+
+  // Utils (duplicated from archive IIFE since that one is scoped)
+  function fmt(n){ return (n ?? 0).toLocaleString(); }
+  function fmtNum(n){
+    if (n === null || n === undefined || Number.isNaN(n)) return "—";
+    if (n === 0) return "0";
+    const abs = Math.abs(n);
+    const d = abs >= 100 ? 1 : abs >= 1 ? 2 : 3;
+    return n.toLocaleString(undefined, { minimumFractionDigits:d, maximumFractionDigits:d });
+  }
+  function escapeHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+  function csvSafe(s){
+    s = String(s ?? "");
+    return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }
+})();
+</script>
+
+<!-- Add-tag modal (only interactive in live mode) -->
+<div class="modal-backdrop no-print" id="tag-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title">Add tag</h3>
+      <button class="close" id="modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-tab="browse">Browse PLC</button>
+      <button class="tab" data-tab="manual">Manual entry</button>
+    </div>
+    <div class="modal-body">
+      <div class="tab-panel" data-panel="browse" style="display:block">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <input class="browse-search" id="browse-search" placeholder="Search address space (path or name)…" style="flex:1;margin-bottom:0" />
+          <button class="btn" id="browse-refresh" title="Re-fetch from the PLC">Refresh</button>
+        </div>
+        <div class="browse-list" id="browse-list"></div>
+      </div>
+      <div class="tab-panel" data-panel="manual" style="display:none">
+        <div class="field-grid">
+          <label for="f-name">Name</label>
+          <input id="f-name" class="mono" placeholder="e.g. TE9" />
+
+          <label for="f-node">NodeId</label>
+          <input id="f-node" class="mono" placeholder='e.g. ns=2;s=Process.TE9' />
+
+          <label for="f-category">Category</label>
+          <select id="f-category">
+            <option>temperature</option>
+            <option>pressure</option>
+            <option>level</option>
+            <option>control</option>
+            <option>current</option>
+            <option>speed</option>
+            <option>vibration</option>
+            <option selected>other</option>
+          </select>
+
+          <label for="f-unit">Unit</label>
+          <input id="f-unit" placeholder="°C, bar, mm, %, rpm…" />
+
+          <label for="f-min">Min</label>
+          <input id="f-min" type="number" step="any" value="0" />
+
+          <label for="f-max">Max</label>
+          <input id="f-max" type="number" step="any" value="100" />
+
+          <div class="col-span-2 hint">
+            Min/Max drive the Normalize feature and the simulator bounds. Not enforced on live data.
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-err" id="modal-err"></span>
+      <button class="btn ghost" id="modal-cancel">Cancel</button>
+      <button class="btn on" id="modal-save">Save tag</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap no-print" id="toast-wrap"></div>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# Runtime data — regenerated from the PLC on every run
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+.env
+
+# Legacy WinCC archive dumps — too large for git; live_server.py does
+# not need them. Re-add via Git LFS if you ever want Archive-mode side-by-side.
+Data_log_10.rdb
+Data_log_52410.csv
+dashboard_data.json
+
+# Logs
+*.log
+/tmp/*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Offline pip wheels cache (optional; git-ignore unless you're shipping via zip)
+wheels/
+
+# Secrets (never commit — use env vars or a local-only file)
+.env.local
+*.pem
+*.key
+certs/
