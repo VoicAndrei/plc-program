@@ -396,86 +396,136 @@
 <script>
 // ──────────────────────────────────────────────────────────────────────────
 // Mode gate: ?mode=archive (default) or ?mode=live
-// Archive reads ./dashboard_data.json (static WinCC export); Live streams
-// from the aiohttp server's /live/* endpoints (OPC UA ingest → SQLite → SSE).
+// Both modes read from the aiohttp server's /live/* endpoints, which front
+// a single SQLite archive populated by the active backend (OPC UA or S7).
+//   Live    : streams new samples via SSE, with rolling-window scrollback.
+//   Archive : queries SQLite over a user-chosen time range (last 24 h by
+//             default), no streaming.
 // ──────────────────────────────────────────────────────────────────────────
 const MODE = new URLSearchParams(location.search).get("mode") === "live" ? "live" : "archive";
 document.body.classList.toggle("live", MODE === "live");
 document.getElementById("mode-archive").classList.toggle("on", MODE === "archive");
 document.getElementById("mode-live").classList.toggle("on", MODE === "live");
 if (MODE === "live"){
-  document.getElementById("m-subtitle").textContent = "Live OPC UA telemetry";
-  document.getElementById("m-title").textContent = "PLC telemetry — live stream";
-  document.getElementById("m-badge-text").textContent = "Connecting…";
+  document.getElementById("m-subtitle").textContent = "Live PLC telemetry";
+  document.getElementById("m-title").textContent = "PLC telemetry, live stream";
+  document.getElementById("m-badge-text").textContent = "Connecting...";
   document.getElementById("m-label-1").textContent = "Page loaded";
   document.getElementById("m-label-2").textContent = "Endpoint";
   document.getElementById("m-label-3").textContent = "Tags";
   document.getElementById("m-label-4").textContent = "Samples received";
-  document.getElementById("f-sources").textContent = "OPC UA stream";
+  document.getElementById("f-sources").textContent = "PLC stream";
 }
 
 (async () => {
   if (MODE !== "archive") return;
   const PALETTE = ["#1d4ed8","#0f766e","#b45309","#7c3aed","#be185d","#115e59","#0369a1","#a16207"];
 
-  const res = await fetch("./dashboard_data.json", {cache:"no-store"});
-  const bundle = await res.json();
+  // ── Tag catalog from the live ingest server ──────────────────────────
+  const cat = await (await fetch("./live/tags", {cache:"no-store"})).json();
+  const SOURCE_LABEL = (cat.backend === "s7") ? "S7 PUT/GET" : "OPC UA stream";
 
-  // Flatten
-  const tags = [];
-  bundle.sources.forEach(src => {
-    src.tags.forEach(t => tags.push({
-      id: t.id,
-      label: t.label,
-      category: t.category,
-      unit: t.unit,
-      sourceName: src.name,
-      count: t.stats.count,
-      min: t.stats.min,
-      max: t.stats.max,
-      avg: t.stats.avg,
-      bad: t.stats.bad,
-      first: t.stats.first,
-      last: t.stats.last,
-      points: t.points,
-    }));
-  });
+  function tagAddrLabel(t){
+    if (t.node) return t.node;
+    if (t.area === "db" && t.db != null){
+      const tt = (t.type || "").toUpperCase();
+      const bit = (t.type === "bool" && t.bit != null) ? `.${t.bit}` : "";
+      return `DB${t.db}.${tt} @${t.offset}${bit}`;
+    }
+    if (t.area) return `${t.area.toUpperCase()} @${t.offset}`;
+    return "";
+  }
 
-  // Header meta
-  const firstAll = tags.map(t=>t.first).sort()[0];
-  const lastAll = tags.map(t=>t.last).sort().at(-1);
-  const spanDays = Math.max(1, Math.round((new Date(lastAll) - new Date(firstAll)) / 86400000));
-  document.getElementById("m-gen").textContent = (bundle.generated || "").replace("T"," ").replace("Z"," UTC");
-  document.getElementById("m-window").textContent = (firstAll||"?").slice(0,10) + " → " + (lastAll||"?").slice(0,10);
-  document.getElementById("m-tags").textContent = tags.length + " channels";
-  document.getElementById("m-sources").textContent = bundle.sources.map(s=>s.name).join(" · ");
-  document.getElementById("f-gen").textContent = "Generated " + (bundle.generated||"");
+  const tags = (cat.tags || []).map(t => ({
+    id: t.id,
+    label: t.id,
+    category: t.category || "other",
+    unit: t.unit || "",
+    sourceName: SOURCE_LABEL,
+    addr: tagAddrLabel(t),
+    count: 0, min: 0, max: 0, avg: 0, bad: 0,
+    first: "", last: "",
+    points: [],         // [ms, value]
+    loaded: false,      // becomes true once history has been fetched in current range
+  }));
+  const byId = new Map(tags.map(t => [t.id, t]));
 
-  // KPIs
-  const totalSamples = tags.reduce((a,t)=>a+t.count,0);
-  const totalBad = tags.reduce((a,t)=>a+t.bad,0);
-  const badPct = totalSamples ? (100*totalBad/totalSamples) : 0;
-  const categories = [...new Set(tags.map(t=>t.category))];
+  // ── Range state ──────────────────────────────────────────────────────
+  // Probe the archive's bounds; default the view to the most recent 24 h
+  // (or the full archive if it spans less than that).
+  let archiveBounds = null;        // {first, last} in ms, or null when empty
+  try {
+    const rj = await (await fetch("./live/range", {cache:"no-store"})).json();
+    if (!rj.empty) archiveBounds = { first: rj.first*1000, last: rj.last*1000 };
+  } catch(_) { /* tolerate older servers without /live/range */ }
+
+  let rangeMs;
+  if (archiveBounds){
+    const span = archiveBounds.last - archiveBounds.first;
+    const wantSpan = 24*3600*1000;
+    rangeMs = {
+      from: span > wantSpan ? archiveBounds.last - wantSpan : archiveBounds.first,
+      to:   archiveBounds.last,
+    };
+  } else {
+    const now = Date.now();
+    rangeMs = { from: now - 24*3600*1000, to: now };
+  }
+
+  // ── Header meta ──────────────────────────────────────────────────────
+  document.getElementById("m-label-1").textContent = "Generated";
+  document.getElementById("m-label-2").textContent = "Range (UTC)";
+  document.getElementById("m-label-3").textContent = "Tags";
+  document.getElementById("m-label-4").textContent = "Source";
+  document.getElementById("m-subtitle").textContent = "SQLite archive";
+  document.getElementById("m-title").textContent    = "PLC telemetry, historical view";
+  document.getElementById("m-badge-text").textContent = archiveBounds ? "Archive online" : "Archive empty";
+  function isoMin(ms){ return new Date(ms).toISOString().slice(0,16).replace("T"," "); }
+  function renderHeaderMeta(){
+    const ts = new Date().toISOString().replace("T"," ").slice(0,19) + " UTC";
+    document.getElementById("m-gen").textContent     = ts;
+    document.getElementById("m-window").textContent  = isoMin(rangeMs.from) + " to " + isoMin(rangeMs.to);
+    document.getElementById("m-tags").textContent    = tags.length + " channels";
+    document.getElementById("m-sources").textContent = SOURCE_LABEL;
+    document.getElementById("f-gen").textContent     = "Generated " + ts;
+  }
+  renderHeaderMeta();
+
+  // ── KPIs ─────────────────────────────────────────────────────────────
+  const selected = new Set();
+  let smooth = false, normalize = false;
+  const MAX_PLOT = 30;
+
   const kpis = document.getElementById("kpis");
   kpis.innerHTML = [
     ["Channels", tags.length, ""],
-    ["Archive span", spanDays.toLocaleString(), "days"],
-    ["Total samples", totalSamples.toLocaleString(), "rows"],
-    ["Invalid samples", totalBad.toLocaleString(), badPct ? `(${badPct.toFixed(1)}%)` : ""],
-    ["Categories", categories.length, ""],
-    ["Sources", bundle.sources.length, "files"],
+    ["Range", "-", ""],
+    ["Plotted", "0", "selected"],
+    ["Loaded", "0", "rows"],
+    ["Categories", new Set(tags.map(t=>t.category)).size, ""],
+    ["Source", SOURCE_LABEL, ""],
   ].map(([k,v,u]) => `<div class="kpi"><div class="k">${k}</div><div class="v mono">${v}<span class="u">${u}</span></div></div>`).join("");
+  const kpiV = [...kpis.querySelectorAll(".kpi .v")];
+  function updateKpis(){
+    kpiV[2].innerHTML = `${selected.size}<span class="u">selected</span>`;
+    const total = tags.reduce((a,t)=>a+t.count,0);
+    kpiV[3].innerHTML = `${total.toLocaleString()}<span class="u">rows</span>`;
+    const ms = rangeMs.to - rangeMs.from;
+    const h = ms/3600000;
+    kpiV[1].innerHTML = h < 48
+      ? `${h<2 ? h.toFixed(2) : h.toFixed(0)}<span class="u">h</span>`
+      : `${(h/24).toFixed(0)}<span class="u">d</span>`;
+  }
 
   // Populate filter dropdowns
   const fCat = document.getElementById("f-cat");
-  categories.sort().forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
+  [...new Set(tags.map(t=>t.category))].sort().forEach(c =>
+    fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
   const fSrc = document.getElementById("f-src");
-  [...new Set(tags.map(t=>t.sourceName))].forEach(s => fSrc.insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
+  fSrc.insertAdjacentHTML("beforeend", `<option value="${SOURCE_LABEL}">${SOURCE_LABEL}</option>`);
 
   // Chart
   const chart = echarts.init(document.getElementById("chart"), null, {renderer:"canvas"});
-  const selected = new Set();
-  let smooth = false, normalize = false;
 
   const baseOption = {
     backgroundColor: "transparent",
@@ -514,10 +564,10 @@ if (MODE === "live"){
   function rebuild(){
     const series = [];
     [...selected].forEach((id,i) => {
-      const t = tags.find(x=>x.id===id); if (!t) return;
+      const t = byId.get(id); if (!t) return;
       const color = PALETTE[i % PALETTE.length];
       let data = t.points;
-      if (normalize){
+      if (normalize && data.length){
         const rng = (t.max - t.min) || 1;
         data = data.map(p => [p[0], (p[1]-t.min)/rng]);
       }
@@ -534,7 +584,8 @@ if (MODE === "live"){
       });
     });
     chart.setOption({
-      yAxis: { ...baseOption.yAxis, name: normalize ? "Normalized (0–1)" : "", nameTextStyle:{color:"#64748b",fontSize:11,fontFamily:"IBM Plex Sans"}, nameGap:10 },
+      xAxis: { ...baseOption.xAxis, min: rangeMs.from, max: rangeMs.to },
+      yAxis: { ...baseOption.yAxis, name: normalize ? "Normalized (0-1)" : "", nameTextStyle:{color:"#64748b",fontSize:11,fontFamily:"IBM Plex Sans"}, nameGap:10 },
       series,
     }, { replaceMerge:["series"], lazyUpdate:true });
     renderLegend();
@@ -543,10 +594,10 @@ if (MODE === "live"){
   function renderLegend(){
     const el = document.getElementById("legend");
     const items = [...selected];
-    if (!items.length){ el.innerHTML = `<span class="hint">No tags selected.</span>`; return; }
+    if (!items.length){ el.innerHTML = `<span class="hint">No tags selected. Click a row to load and plot.</span>`; return; }
     el.innerHTML = "";
     items.forEach((id,i) => {
-      const t = tags.find(x=>x.id===id);
+      const t = byId.get(id);
       const color = PALETTE[i % PALETTE.length];
       const c = document.createElement("span");
       c.className = "lchip";
@@ -556,26 +607,86 @@ if (MODE === "live"){
     });
   }
 
-  const MAX_PLOT = 30;
-
-  function toggle(id){
-    if (selected.has(id)) selected.delete(id);
-    else {
-      if (selected.size >= MAX_PLOT) selected.delete(selected.values().next().value);
-      selected.add(id);
+  // ── Loading from SQLite ─────────────────────────────────────────────
+  async function loadPoints(ids){
+    if (!ids.length) return;
+    const sinceS = rangeMs.from / 1000;
+    const untilS = rangeMs.to / 1000;
+    const url = `./live/history?tags=${ids.map(encodeURIComponent).join(",")}&since=${sinceS}&until=${untilS}&limit=200000`;
+    try {
+      const r = await fetch(url, {cache:"no-store"});
+      const j = await r.json();
+      if (!r.ok){
+        document.getElementById("m-badge-text").textContent = "Archive error";
+        return;
+      }
+      (j.series || []).forEach(s => {
+        const t = byId.get(s.id);
+        if (!t) return;
+        t.points = (s.points || []).map(([ts,v]) => [ts*1000, v]);
+        recomputeStats(t);
+        t.loaded = true;
+      });
+    } catch(e){
+      document.getElementById("m-badge-text").textContent = "Archive unreachable";
     }
-    rebuild();
-    renderTable(); // to refresh active highlight
-    refreshRangeBounds();
   }
 
-  function refreshRangeBounds(){
-    const b = selectionBounds();
-    const fromEl = document.getElementById("rng-from");
-    const toEl   = document.getElementById("rng-to");
-    if (!fromEl || !b) return;
-    fromEl.min = toEl.min = epochToLocalInput(b.first);
-    fromEl.max = toEl.max = epochToLocalInput(b.last);
+  function recomputeStats(t){
+    if (!t.points.length){
+      t.count = 0; t.min = 0; t.max = 0; t.avg = 0;
+      t.first = ""; t.last = "";
+      return;
+    }
+    let mn = Infinity, mx = -Infinity, sum = 0;
+    for (const [, v] of t.points){ if (v < mn) mn = v; if (v > mx) mx = v; sum += v; }
+    t.min = mn; t.max = mx; t.avg = sum/t.points.length; t.count = t.points.length;
+    t.first = isoMin(t.points[0][0]);
+    t.last  = isoMin(t.points[t.points.length-1][0]);
+  }
+
+  async function toggle(id){
+    if (selected.has(id)){
+      selected.delete(id);
+    } else {
+      if (selected.size >= MAX_PLOT) selected.delete(selected.values().next().value);
+      selected.add(id);
+      const t = byId.get(id);
+      if (t && !t.loaded) await loadPoints([id]);
+    }
+    rebuild();
+    renderTable();
+    updateKpis();
+  }
+
+  // ── Range mutations: fetch on change ────────────────────────────────
+  async function setRange(fromMs, toMs){
+    if (toMs <= fromMs) toMs = fromMs + 60_000;
+    rangeMs = { from: fromMs, to: toMs };
+    // Old points belong to the old window; drop and refetch only what's plotted.
+    tags.forEach(t => { t.loaded = false; t.points = []; recomputeStats(t); });
+    syncRangeInputs();
+    renderHeaderMeta();
+    if (selected.size) await loadPoints([...selected]);
+    updateKpis();
+    rebuild();
+    renderTable();
+  }
+  function syncRangeInputs(){
+    document.getElementById("rng-from").value = epochToLocalInput(rangeMs.from);
+    document.getElementById("rng-to").value   = epochToLocalInput(rangeMs.to);
+    document.getElementById("rng-span").textContent = humanSpan(rangeMs.to - rangeMs.from);
+  }
+  function humanSpan(ms){
+    if (ms <= 0) return "-";
+    const s = Math.round(ms/1000);
+    if (s < 90) return `${s}s window`;
+    const m = Math.round(s/60);
+    if (m < 90) return `${m}m window`;
+    const h = Math.round(m/6)/10;
+    if (h < 48) return `${h.toFixed(1)}h window`;
+    const d = ms/86400000;
+    return `${d.toFixed(d<10?1:0)}d window`;
   }
 
   // Table
@@ -622,21 +733,21 @@ if (MODE === "live"){
 
     const tbody = document.querySelector("#tbl tbody");
     tbody.innerHTML = rows.map(t => `
-      <tr data-id="${t.id}" class="${selected.has(t.id) ? "active":""}">
+      <tr data-id="${escapeHtml(t.id)}" class="${selected.has(t.id) ? "active":""}">
         <td>
           <div class="tag-id">${escapeHtml(t.id)}</div>
-          <div class="tag-desc">${escapeHtml(t.label)}</div>
+          <div class="tag-desc">${escapeHtml(t.addr || "")}</div>
         </td>
         <td class="cat-cell">${t.category}</td>
-        <td class="hide-sm">${t.unit || "—"}</td>
+        <td class="hide-sm">${t.unit || "-"}</td>
         <td class="hide-sm"><span class="source-tag">${escapeHtml(t.sourceName)}</span></td>
         <td class="num mono">${fmt(t.count)}</td>
         <td class="num mono">${fmtNum(t.min)}</td>
         <td class="num mono">${fmtNum(t.max)}</td>
         <td class="num mono">${fmtNum(t.avg)}</td>
         <td class="num mono ${t.bad>0 ? 'warn':''}">${fmt(t.bad)}</td>
-        <td class="num mono hide-sm">${(t.first||"").replace("T"," ").slice(0,16)}</td>
-        <td class="num mono hide-sm">${(t.last||"").replace("T"," ").slice(0,16)}</td>
+        <td class="num mono hide-sm">${t.first || "-"}</td>
+        <td class="num mono hide-sm">${t.last || "-"}</td>
       </tr>`).join("");
 
     tbody.querySelectorAll("tr").forEach(tr => {
@@ -646,17 +757,7 @@ if (MODE === "live"){
     document.getElementById("row-count").textContent = rows.length.toLocaleString() + " rows";
   }
 
-  // --- Range bounds come from the union of selected tags (or all tags if none picked)
-  function selectionBounds(){
-    const src = selected.size ? [...selected].map(id => tags.find(t=>t.id===id)) : tags;
-    if (!src.length) return null;
-    const first = Math.min(...src.map(t => new Date(t.first).getTime()));
-    const last  = Math.max(...src.map(t => new Date(t.last).getTime()));
-    return { first, last };
-  }
-
-  // --- Local <datetime-local> <-> epoch helpers
-  // datetime-local has no timezone; treat input as UTC (matches archive timestamps).
+  // datetime-local <-> epoch helpers (treat input as UTC, matches DB timestamps)
   function epochToLocalInput(ms){
     const d = new Date(ms);
     const pad = n => String(n).padStart(2,"0");
@@ -669,95 +770,60 @@ if (MODE === "live"){
     return Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0));
   }
 
-  // --- Apply a window to the chart and sync the inputs
-  let syncing = false;
-  function applyRange(startMs, endMs, { bump = true } = {}){
-    const b = selectionBounds();
-    if (!b) return;
-    startMs = Math.max(b.first, Math.min(b.last, startMs));
-    endMs   = Math.max(b.first, Math.min(b.last, endMs));
-    if (endMs <= startMs) endMs = startMs + 1000;
-    syncing = true;
-    if (bump) chart.dispatchAction({ type:"dataZoom", startValue:startMs, endValue:endMs });
-    document.getElementById("rng-from").value = epochToLocalInput(startMs);
-    document.getElementById("rng-to").value   = epochToLocalInput(endMs);
-    document.getElementById("rng-span").textContent = humanSpan(endMs - startMs);
-    syncing = false;
-  }
-
-  function humanSpan(ms){
-    if (ms <= 0) return "—";
-    const s = Math.round(ms/1000);
-    if (s < 90) return `${s}s window`;
-    const m = Math.round(s/60);
-    if (m < 90) return `${m}m window`;
-    const h = Math.round(m/6)/10;
-    if (h < 48) return `${h.toFixed(1)}h window`;
-    const d = ms/86400000;
-    return `${d.toFixed(d<10?1:0)}d window`;
-  }
-
-  function resetRangeToFull(){
-    const b = selectionBounds();
-    if (!b) return;
-    applyRange(b.first, b.last);
-  }
-
-  // --- Quick-range buttons
+  // Quick-range buttons. "all"/"first" need archive bounds; if the archive
+  // is empty, they fall back to "now minus N" so the picker still updates.
   document.querySelectorAll(".btn[data-range]").forEach(b => {
-    b.addEventListener("click", () => {
-      const bounds = selectionBounds(); if (!bounds) return;
-      const { first, last } = bounds;
+    b.addEventListener("click", async () => {
+      const now      = archiveBounds ? archiveBounds.last  : Date.now();
+      const earliest = archiveBounds ? archiveBounds.first : now - 30*86400000;
       let s, e;
       switch (b.dataset.range){
-        case "all":   s=first; e=last; break;
-        case "7d":    s=last-7*86400000; e=last; break;
-        case "1d":    s=last-86400000;   e=last; break;
-        case "1h":    s=last-3600000;    e=last; break;
-        case "first": s=first; e=first+86400000; break;
+        case "all":   s = earliest;                                 e = now; break;
+        case "7d":    s = Math.max(earliest, now - 7*86400000);     e = now; break;
+        case "1d":    s = Math.max(earliest, now - 86400000);       e = now; break;
+        case "1h":    s = Math.max(earliest, now - 3600000);        e = now; break;
+        case "first": s = earliest; e = Math.min(now, earliest + 86400000); break;
+        default: return;
       }
-      applyRange(s, e);
+      await setRange(s, e);
     });
   });
 
-  // --- Custom From/To inputs
-  function applyInputs(){
+  // Custom From/To inputs
+  async function applyInputs(){
     const s = localInputToEpoch(document.getElementById("rng-from").value);
     const e = localInputToEpoch(document.getElementById("rng-to").value);
     if (isNaN(s) || isNaN(e)) return;
-    applyRange(s, e);
+    await setRange(s, e);
   }
   document.getElementById("rng-apply").addEventListener("click", applyInputs);
   document.getElementById("rng-from").addEventListener("change", applyInputs);
   document.getElementById("rng-to").addEventListener("change", applyInputs);
   document.getElementById("rng-from").addEventListener("keydown", e => { if (e.key === "Enter") applyInputs(); });
   document.getElementById("rng-to").addEventListener("keydown", e => { if (e.key === "Enter") applyInputs(); });
-  document.getElementById("rng-reset").addEventListener("click", resetRangeToFull);
-
-  // --- Keep inputs synced when user drags the bottom zoom slider or wheels inside chart
-  chart.on("dataZoom", () => {
-    if (syncing) return;
-    const opt = chart.getOption();
-    const dz = (opt.dataZoom || []).find(d => d.type === "slider") || opt.dataZoom?.[0];
-    const b = selectionBounds(); if (!b || !dz) return;
-    const fullSpan = b.last - b.first;
-    const startPct = (dz.start ?? 0)/100, endPct = (dz.end ?? 100)/100;
-    const s = dz.startValue ?? (b.first + fullSpan*startPct);
-    const e = dz.endValue   ?? (b.first + fullSpan*endPct);
-    document.getElementById("rng-from").value = epochToLocalInput(s);
-    document.getElementById("rng-to").value   = epochToLocalInput(e);
-    document.getElementById("rng-span").textContent = humanSpan(e - s);
+  document.getElementById("rng-reset").addEventListener("click", async () => {
+    if (archiveBounds) await setRange(archiveBounds.first, archiveBounds.last);
   });
 
-  const toggleBtn = (btn, state, fn) => btn.addEventListener("click", () => { fn(); btn.classList.toggle("on"); rebuild(); });
-  toggleBtn(document.getElementById("btn-smooth"), smooth, ()=> smooth = !smooth);
-  toggleBtn(document.getElementById("btn-normalize"), normalize, ()=> normalize = !normalize);
-  document.getElementById("btn-clear").addEventListener("click", ()=>{ selected.clear(); rebuild(); renderTable(); refreshRangeBounds(); });
+  // Anchor the picker bounds to the archive extent, then write current range
+  if (archiveBounds){
+    const fromEl = document.getElementById("rng-from");
+    const toEl   = document.getElementById("rng-to");
+    fromEl.min = toEl.min = epochToLocalInput(archiveBounds.first);
+    fromEl.max = toEl.max = epochToLocalInput(archiveBounds.last);
+  }
+  syncRangeInputs();
 
-  document.getElementById("btn-select-all").addEventListener("click", () => {
+  const toggleBtn = (btn, fn) => btn.addEventListener("click", () => { fn(); btn.classList.toggle("on"); rebuild(); });
+  toggleBtn(document.getElementById("btn-smooth"),    () => smooth = !smooth);
+  toggleBtn(document.getElementById("btn-normalize"), () => normalize = !normalize);
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    selected.clear(); rebuild(); renderTable(); updateKpis();
+  });
+
+  document.getElementById("btn-select-all").addEventListener("click", async () => {
     const rows = filteredTags();
     if (!rows.length) return;
-    // Suggest normalize when the set has mixed units
     const units = new Set(rows.map(t => t.unit || ""));
     const mixed = units.size > 1;
     selected.clear();
@@ -766,9 +832,11 @@ if (MODE === "live"){
       normalize = true;
       document.getElementById("btn-normalize").classList.add("on");
     }
+    const need = rows.slice(0, MAX_PLOT).filter(t => !t.loaded).map(t => t.id);
+    if (need.length) await loadPoints(need);
+    updateKpis();
     rebuild();
     renderTable();
-    refreshRangeBounds();
     if (rows.length > MAX_PLOT){
       console.warn(`Capped selection at ${MAX_PLOT} tags of ${rows.length} filtered.`);
     }
@@ -781,15 +849,13 @@ if (MODE === "live"){
 
   document.getElementById("btn-csv").addEventListener("click", () => {
     if (!selected.size){ alert("Select at least one tag."); return; }
-    const ids = [...selected];
-    // Long-form CSV: timestamp, tag_id, value
-    const lines = ["timestamp,tag_id,value"];
-    ids.forEach(id => {
-      const t = tags.find(x=>x.id===id);
-      t.points.forEach(([ts,v]) => lines.push(`${ts},${csvSafe(id)},${v}`));
+    const lines = ["timestamp_iso_utc,tag_id,value"];
+    [...selected].forEach(id => {
+      const t = byId.get(id); if (!t) return;
+      t.points.forEach(([ms, v]) => lines.push(`${new Date(ms).toISOString()},${csvSafe(id)},${v}`));
     });
     const blob = new Blob([lines.join("\n")], {type:"text/csv"});
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "selected_tags.csv"; a.click();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "archive_export.csv"; a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
   });
 
@@ -797,28 +863,16 @@ if (MODE === "live"){
 
   window.addEventListener("resize", () => chart.resize());
 
-  // Initial render
+  // Initial render. No auto-plotted seed: the user picks tags from the table.
   renderTable();
-
-  // Seed one realistic plot so the engineer sees data immediately
-  const seed = tags.find(t => t.id === "FB_TE1_akt_Out_real") || tags[0];
-  if (seed) toggle(seed.id);
-
-  // Pin input bounds to available data and initialize with full window
-  (function initRangeInputs(){
-    const b = selectionBounds();
-    if (!b) return;
-    const fromEl = document.getElementById("rng-from");
-    const toEl   = document.getElementById("rng-to");
-    fromEl.min = toEl.min = epochToLocalInput(b.first);
-    fromEl.max = toEl.max = epochToLocalInput(b.last);
-    applyRange(b.first, b.last, { bump: false });
-  })();
+  updateKpis();
+  rebuild();
 
   // Utils
   function fmt(n){ return (n ?? 0).toLocaleString(); }
   function fmtNum(n){
-    if (n === null || n === undefined) return "—";
+    if (n === null || n === undefined) return "-";
+    if (n === 0) return "0";
     const abs = Math.abs(n);
     const d = abs >= 100 ? 1 : abs >= 1 ? 2 : 3;
     return n.toLocaleString(undefined, { minimumFractionDigits:d, maximumFractionDigits:d });

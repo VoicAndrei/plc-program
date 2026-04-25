@@ -815,12 +815,26 @@ async def handle_browse(request: web.Request):
     return web.json_response({"nodes": nodes, "capped": len(nodes) >= BROWSE_NODE_CAP})
 
 
+async def handle_range(request: web.Request):
+    """Min/max sample timestamps across the whole archive. The dashboard's
+    Archive mode uses this to anchor its date pickers and the 'All' button."""
+    con: sqlite3.Connection = request.app["db"]
+    cur = con.cursor()
+    cur.execute("SELECT MIN(ts), MAX(ts) FROM samples")
+    row = cur.fetchone()
+    if not row or row[0] is None:
+        return web.json_response({"first": None, "last": None, "empty": True})
+    return web.json_response({"first": float(row[0]), "last": float(row[1]), "empty": False})
+
+
 async def handle_history(request: web.Request):
     con: sqlite3.Connection = request.app["db"]
     tags_param = request.query.get("tags", "")
     since_param = request.query.get("since")
     until_param = request.query.get("until")
-    limit = int(request.query.get("limit", 5000))
+    # 100k points covers ~28h at 1 Hz per tag, plenty for the dashboard's
+    # default 24h archive view. ECharts LTTB downsamples on the client.
+    limit = int(request.query.get("limit", 100_000))
     names = [t for t in tags_param.split(",") if t]
     if not names:
         return web.json_response({"error": "tags= required"}, status=400)
@@ -911,6 +925,7 @@ def make_app() -> web.Application:
     app.router.add_post("/live/tags",          handle_post_tag)
     app.router.add_delete("/live/tags/{name}", handle_delete_tag)
     app.router.add_get ("/live/browse",        handle_browse)
+    app.router.add_get ("/live/range",         handle_range)
     app.router.add_get ("/live/history",       handle_history)
     app.router.add_get ("/live/stream",        handle_stream)
     app.router.add_static("/", path=str(HERE), show_index=True)
