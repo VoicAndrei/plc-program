@@ -1,21 +1,28 @@
-# OPC UA connection settings for live_server.py.
+# Connection settings for live_server.py.
 #
-# For a real PLC:
-#   1. Change `endpoint` to the PLC's OPC UA URL
-#      (typically opc.tcp://<plc-ip>:4840/... — check TIA Portal → OPC UA → Server address)
-#   2. If the PLC requires authentication, set env vars before starting:
-#        export PLC_USER="<username>"
-#        export PLC_PASS="<password>"
-#      Credentials are never stored in this file.
-#   3. If anonymous is rejected ("BadIdentityTokenRejected"), either
-#      enable "Permit access via anonymous user authentication" in
-#      TIA Portal, or use the env-var path above.
-#
-# The sim server (opcua_server.py) reads `endpoint`, `sample_interval_s`,
-# and `sim.namespace` from this file too.
+# Pick ONE backend:
+#   - opcua : reads tags from a Siemens OPC UA server (TIA Portal,
+#             freeopcua sim, etc.). Requires an OPC UA license on the
+#             PLC for S7-1500 (TIA → CPU properties → OPC UA → set the
+#             dropdown to "OPC UA small" or higher; trial license can be
+#             activated via Automation License Manager).
+#   - s7    : reads tags from a Siemens S7-1500 / ET200SP CPU over the
+#             native S7 protocol (port 102) via python-snap7. No PLC-side
+#             license needed, but TIA Portal requires:
+#               1. CPU → Protection & Security → "Permit access with
+#                  PUT/GET communication from remote partner" enabled.
+#               2. Every DB to be read must have "Optimized block access"
+#                  DISABLED (DB → Properties → Attributes).
+#             Tag addressing changes: instead of `node:` you specify
+#             `area, db, offset, type` per tag (see tags.yaml comments).
 
-endpoint: "opc.tcp://127.0.0.1:4840/plc/"
+backend: opcua
+
+# How often to sample / poll values, in seconds.
 sample_interval_s: 1.0
+
+# ── OPC UA settings (used when backend == opcua) ─────────────────────────
+endpoint: "opc.tcp://127.0.0.1:4840/plc/"
 
 auth:
   # "anonymous" | "password"
@@ -26,7 +33,7 @@ auth:
 security:
   # "none" is standard for an isolated OT/fieldbus network.
   # Other values (basic256sha256, aes128_sha256_rsaoaep, ...) require a
-  # certificate exchange with the PLC — add cert_path + key_path and flip
+  # certificate exchange with the PLC, add cert_path + key_path and flip
   # the policy here. Not needed for anonymous/air-gapped setups.
   policy: none
   # cert_path: ./certs/client.der
@@ -35,3 +42,13 @@ security:
 # Sim-only. Ignored when endpoint points at a real PLC.
 sim:
   namespace: "https://plc-program.local/sim"
+
+# ── S7 settings (used when backend == s7) ────────────────────────────────
+s7:
+  host: "192.168.10.1"      # IP of the CPU (X1 PN port for ET200SP)
+  rack: 0
+  # Slot conventions (Siemens):
+  #   S7-1500 standalone (1511, 1513, ...): slot 1
+  #   ET200SP-CPU (1510SP, 1512SP, 1515SP):  slot 1 (try 0 if connect fails)
+  #   S7-300 / S7-400:                       slot 2
+  slot: 1

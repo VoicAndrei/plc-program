@@ -1,4 +1,11 @@
-# Runtime deps for live_server.py and opcua_server.py
+# Runtime deps for live_server.py and opcua_server.py.
+#
+# OPC UA backend uses asyncua (pure Python, no extra system deps).
+# S7 backend uses python-snap7, which wraps the snap7 C library:
+#   - Windows: snap7.dll bundled by the wheel since python-snap7 1.4.
+#   - macOS:   `brew install snap7` (the wheel calls into libsnap7.dylib).
+#   - Linux:   `apt-get install libsnap7-1` or build from sourceforge.
 asyncua>=1.1.0,<2.0
 aiohttp>=3.9.0,<4.0
 PyYAML>=6.0,<7.0
+python-snap7>=1.4,<3.0

@@ -201,6 +201,18 @@
   }
   .modal-err{color:var(--bad);font-size:12px;margin-right:auto;align-self:center}
 
+  /* Backend-driven visibility in the Add-tag modal.
+     The body class is set once (backend-opcua | backend-s7) when live mode
+     starts, and decides which addressing fields show up. Dashboard-side
+     filtering is purely cosmetic; the server validates again on POST. */
+  body:not(.backend-opcua) .addr-opcua{display:none !important}
+  body:not(.backend-s7)    .addr-s7   {display:none !important}
+  body:not(.browse-supported) .tabs .tab[data-tab="browse"]{display:none}
+  body:not(.browse-supported) .tab-panel[data-panel="browse"]{display:none !important}
+  /* Conditional sub-fields inside the S7 manual form */
+  body:not(.s7-area-db)  .s7-db-row {display:none !important}
+  body:not(.s7-type-bool) .s7-bit-row{display:none !important}
+
   /* Toast */
   .toast-wrap{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:6px;z-index:200}
   .toast{
@@ -835,13 +847,31 @@ if (MODE === "live"){
 
   // ---- Load tag catalog -------------------------------------------------
   const catalog = await (await fetch("./live/tags", {cache:"no-store"})).json();
+  const BACKEND = (catalog.backend || "opcua").toLowerCase();
+  const BROWSE_SUPPORTED = !!catalog.browse_supported;
+  const SOURCE_LABEL = BACKEND === "s7" ? "S7 PUT/GET" : "OPC UA stream";
+  document.body.classList.add("backend-" + BACKEND);
+  if (BROWSE_SUPPORTED) document.body.classList.add("browse-supported");
+
+  function tagAddrLabel(t){
+    if (t.node) return t.node;
+    if (t.area === "db" && t.db != null) {
+      const tt = (t.type || "").toUpperCase();
+      const bit = (t.type === "bool" && t.bit != null) ? `.${t.bit}` : "";
+      return `DB${t.db}.${tt} @${t.offset}${bit}`;
+    }
+    if (t.area) return `${t.area.toUpperCase()} @${t.offset}`;
+    return "";
+  }
+
   const tags = catalog.tags.map(t => ({
     id: t.id,
     label: t.id,
     category: t.category,
     unit: t.unit,
-    sourceName: "OPC UA stream",
+    sourceName: SOURCE_LABEL,
     node: t.node,
+    addr: tagAddrLabel(t),
     count: 0, min: 0, max: 0, avg: 0, bad: 0,
     first: "—", last: "—",
     points: [],  // [ms, value]
@@ -907,7 +937,7 @@ if (MODE === "live"){
   const categories = [...new Set(tags.map(t=>t.category))].sort();
   categories.forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
   const fSrc = document.getElementById("f-src");
-  fSrc.insertAdjacentHTML("beforeend", `<option value="OPC UA stream">OPC UA stream</option>`);
+  fSrc.insertAdjacentHTML("beforeend", `<option value="${SOURCE_LABEL}">${SOURCE_LABEL}</option>`);
 
   // ---- Chart ------------------------------------------------------------
   const chart = echarts.init(document.getElementById("chart"), null, {renderer:"canvas"});
@@ -1048,7 +1078,7 @@ if (MODE === "live"){
       <tr data-id="${escapeHtml(t.id)}" class="${selected.has(t.id) ? "active":""}">
         <td>
           <div class="tag-id">${escapeHtml(t.id)}</div>
-          <div class="tag-desc">${escapeHtml(t.node)}</div>
+          <div class="tag-desc">${escapeHtml(t.addr || "")}</div>
         </td>
         <td class="cat-cell">${t.category}</td>
         <td class="hide-sm">${t.unit || "—"}</td>
@@ -1107,15 +1137,17 @@ if (MODE === "live"){
 
   // ---- Stream -----------------------------------------------------------
   let connInfo = { endpoint: catalog.endpoint, auth_mode: catalog.auth_mode || "anonymous", security_policy: catalog.security_policy || "none" };
+  const BACKEND_LABEL = BACKEND === "s7" ? "S7" : "OPC UA";
   function setStatus(cls, text){
     const s = document.getElementById("conn-status");
     s.classList.remove("up","down","paused"); s.classList.add(cls);
     const authBit = connInfo.auth_mode ? ` · ${connInfo.auth_mode}` : "";
-    document.getElementById("conn-text").textContent = text + (cls === "up" ? authBit : "");
+    document.getElementById("conn-text").textContent =
+      `${BACKEND_LABEL} · ${text}` + (cls === "up" ? authBit : "");
     const badge = document.getElementById("m-badge");
     const bt = document.getElementById("m-badge-text");
     const dot = badge.querySelector(".dot");
-    if (cls === "up"){ dot.style.background = "var(--ok)"; bt.textContent = `Live · ${tags.length} tags${authBit}`; }
+    if (cls === "up"){ dot.style.background = "var(--ok)"; bt.textContent = `Live · ${BACKEND_LABEL} · ${tags.length} tags${authBit}`; }
     else if (cls === "down"){ dot.style.background = "var(--bad)"; bt.textContent = "Disconnected"; }
     else if (cls === "paused"){ dot.style.background = "var(--warn)"; bt.textContent = "Paused"; }
   }
@@ -1222,14 +1254,33 @@ if (MODE === "live"){
 
   function openModal(){
     modalEl.classList.add("open");
-    // Reset to Browse tab + refresh list
-    selectTab("browse");
     document.getElementById("modal-err").textContent = "";
-    ["f-name","f-node","f-unit"].forEach(id => { const e = document.getElementById(id); if (e) e.value = ""; });
+    ["f-name","f-node","f-unit","f-db","f-offset"].forEach(id => {
+      const e = document.getElementById(id); if (e) e.value = "";
+    });
     document.getElementById("f-category").value = "other";
     document.getElementById("f-min").value = "0";
     document.getElementById("f-max").value = "100";
-    fetchBrowse();
+    if (BACKEND === "s7"){
+      document.getElementById("f-area").value = "db";
+      document.getElementById("f-type").value = "real";
+      document.getElementById("f-bit").value  = "0";
+      syncS7Visibility();
+    }
+    // S7 has no browse, so manual is the only choice there.
+    selectTab(BROWSE_SUPPORTED ? "browse" : "manual");
+    if (BROWSE_SUPPORTED) fetchBrowse();
+  }
+
+  function syncS7Visibility(){
+    const area = document.getElementById("f-area").value;
+    const type = document.getElementById("f-type").value;
+    document.body.classList.toggle("s7-area-db",  area === "db");
+    document.body.classList.toggle("s7-type-bool", type === "bool");
+  }
+  if (BACKEND === "s7"){
+    document.getElementById("f-area").addEventListener("change", syncS7Visibility);
+    document.getElementById("f-type").addEventListener("change", syncS7Visibility);
   }
   function closeModal(){ modalEl.classList.remove("open"); }
 
@@ -1291,15 +1342,39 @@ if (MODE === "live"){
     const err = document.getElementById("modal-err"); err.textContent = "";
     const body = {
       name:     document.getElementById("f-name").value.trim(),
-      node:     document.getElementById("f-node").value.trim(),
       category: document.getElementById("f-category").value.trim() || "other",
       unit:     document.getElementById("f-unit").value.trim(),
       min:      parseFloat(document.getElementById("f-min").value),
       max:      parseFloat(document.getElementById("f-max").value),
     };
-    if (!body.name || !body.node){ err.textContent = "Name and NodeId are required."; return; }
+    if (!body.name){ err.textContent = "Name is required."; return; }
     if (!Number.isFinite(body.min)) body.min = 0;
     if (!Number.isFinite(body.max)) body.max = 100;
+
+    if (BACKEND === "opcua"){
+      body.node = document.getElementById("f-node").value.trim();
+      if (!body.node){ err.textContent = "NodeId is required."; return; }
+    } else if (BACKEND === "s7"){
+      body.area   = document.getElementById("f-area").value;
+      body.type   = document.getElementById("f-type").value;
+      const offS = document.getElementById("f-offset").value.trim();
+      if (offS === ""){ err.textContent = "Byte offset is required."; return; }
+      body.offset = parseInt(offS, 10);
+      if (!Number.isFinite(body.offset)){ err.textContent = "Byte offset must be an integer."; return; }
+      if (body.area === "db"){
+        const dbS = document.getElementById("f-db").value.trim();
+        if (dbS === ""){ err.textContent = "DB number is required when Area is DB."; return; }
+        body.db = parseInt(dbS, 10);
+        if (!Number.isFinite(body.db)){ err.textContent = "DB number must be an integer."; return; }
+      }
+      if (body.type === "bool"){
+        body.bit = parseInt(document.getElementById("f-bit").value, 10);
+        if (!Number.isFinite(body.bit) || body.bit < 0 || body.bit > 7){
+          err.textContent = "Bit must be 0..7."; return;
+        }
+      }
+    }
+
     try{
       const r = await fetch("./live/tags", {
         method: "POST", headers: {"Content-Type":"application/json"},
@@ -1335,11 +1410,20 @@ if (MODE === "live"){
       // Preserve ring buffers for tags that still exist
       const prevById = new Map(tags.map(t => [t.id, t]));
       const newTags = j.tags.map(t => {
+        const addr = tagAddrLabel(t);
         const prev = prevById.get(t.id);
-        if (prev){ prev.category = t.category; prev.unit = t.unit; prev.cfgMin = t.min; prev.cfgMax = t.max; prev.node = t.node; return prev; }
+        if (prev){
+          prev.category = t.category; prev.unit = t.unit;
+          prev.cfgMin = t.min; prev.cfgMax = t.max;
+          prev.node = t.node; prev.addr = addr;
+          prev.area = t.area; prev.db = t.db; prev.offset = t.offset; prev.type = t.type; prev.bit = t.bit;
+          return prev;
+        }
         return {
           id: t.id, label: t.id, category: t.category, unit: t.unit,
-          sourceName: "OPC UA stream", node: t.node,
+          sourceName: SOURCE_LABEL,
+          node: t.node, addr,
+          area: t.area, db: t.db, offset: t.offset, type: t.type, bit: t.bit,
           count: 0, min: 0, max: 0, avg: 0, bad: 0, first: "—", last: "—",
           points: [], cfgMin: t.min, cfgMax: t.max,
         };
@@ -1419,8 +1503,38 @@ if (MODE === "live"){
           <label for="f-name">Name</label>
           <input id="f-name" class="mono" placeholder="e.g. TE9" />
 
-          <label for="f-node">NodeId</label>
-          <input id="f-node" class="mono" placeholder='e.g. ns=2;s=Process.TE9' />
+          <!-- OPC UA addressing -->
+          <label class="addr-opcua" for="f-node">NodeId</label>
+          <input id="f-node" class="mono addr-opcua" placeholder='e.g. ns=2;s=Process.TE9' />
+
+          <!-- S7 addressing -->
+          <label class="addr-s7" for="f-area">Area</label>
+          <select id="f-area" class="addr-s7">
+            <option value="db">DB (Data Block)</option>
+            <option value="m">M (Merker)</option>
+            <option value="i">I (Inputs / PE)</option>
+            <option value="q">Q (Outputs / PA)</option>
+          </select>
+
+          <label class="addr-s7 s7-db-row" for="f-db">DB number</label>
+          <input id="f-db" class="addr-s7 s7-db-row" type="number" min="1" step="1" placeholder="e.g. 1" />
+
+          <label class="addr-s7" for="f-offset">Byte offset</label>
+          <input id="f-offset" class="addr-s7" type="number" min="0" step="1" placeholder="0" />
+
+          <label class="addr-s7" for="f-type">Data type</label>
+          <select id="f-type" class="addr-s7">
+            <option value="real">REAL (Float32)</option>
+            <option value="int">INT (Int16)</option>
+            <option value="dint">DINT (Int32)</option>
+            <option value="word">WORD (UInt16)</option>
+            <option value="dword">DWORD (UInt32)</option>
+            <option value="byte">BYTE (UInt8)</option>
+            <option value="bool">BOOL</option>
+          </select>
+
+          <label class="addr-s7 s7-bit-row" for="f-bit">Bit (0..7)</label>
+          <input id="f-bit" class="addr-s7 s7-bit-row" type="number" min="0" max="7" step="1" value="0" />
 
           <label for="f-category">Category</label>
           <select id="f-category">
