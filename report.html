@@ -527,6 +527,31 @@ if (MODE === "live"){
   // Chart
   const chart = echarts.init(document.getElementById("chart"), null, {renderer:"canvas"});
 
+  // Tooltip formatter: with Normalize off the data is [ms, value]; with
+  // Normalize on it's [ms, normalized, original]. Show the engineering
+  // value either way, plus a faint normalized hint when relevant.
+  function tooltipFormatter(params){
+    if (!params || !params.length) return "";
+    const tsMs  = params[0].axisValue;
+    const tsStr = isNaN(tsMs) ? "" : new Date(tsMs).toISOString().slice(0,19).replace("T", " ") + " UTC";
+    const lines = [`<div style="font-weight:600;margin-bottom:4px">${tsStr}</div>`];
+    params.forEach(p => {
+      const v = p.value;
+      if (!Array.isArray(v)) return;
+      const isNorm  = v.length >= 3;
+      const display = isNorm ? v[2] : v[1];
+      if (display == null || isNaN(display)) return;
+      const t = byId.get(p.seriesName);
+      const unit = t && t.unit ? ` ${escapeHtml(t.unit)}` : "";
+      const normHint = isNorm ? ` <span style="color:#94a3b8">(norm ${fmtNum(v[1])})</span>` : "";
+      lines.push(
+        `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:6px;vertical-align:middle"></span>` +
+        `${escapeHtml(p.seriesName)}: <b>${fmtNum(display)}</b>${unit}${normHint}</div>`
+      );
+    });
+    return lines.join("");
+  }
+
   const baseOption = {
     backgroundColor: "transparent",
     grid: { left: 60, right: 24, top: 24, bottom: 64, containLabel: false },
@@ -539,6 +564,10 @@ if (MODE === "live"){
       borderWidth:1,
       textStyle:{color:"#0f172a",fontFamily:"IBM Plex Sans",fontSize:12},
       padding:[8,10],
+      // When Normalize is on, series data is [ms, normalized, original].
+      // We always show the engineering value (with unit); the normalized
+      // number is only added as a faint hint so the y-axis still makes sense.
+      formatter: tooltipFormatter,
     },
     xAxis: {
       type:"time",
@@ -569,7 +598,9 @@ if (MODE === "live"){
       let data = t.points;
       if (normalize && data.length){
         const rng = (t.max - t.min) || 1;
-        data = data.map(p => [p[0], (p[1]-t.min)/rng]);
+        // 3rd element is the original value; the tooltip formatter uses it
+        // so hovering shows the engineering value, not the 0-1 normalized one.
+        data = data.map(p => [p[0], (p[1]-t.min)/rng, p[1]]);
       }
       series.push({
         name: t.label,
@@ -1007,6 +1038,10 @@ if (MODE === "live"){
       borderWidth:1,
       textStyle:{color:"#0f172a",fontFamily:"IBM Plex Sans",fontSize:12},
       padding:[8,10],
+      // [ms, normalized, original] when Normalize is on, [ms, value] otherwise.
+      // Always show the engineering value; the normalized number is just a
+      // faint hint so the y-axis still maps cleanly.
+      formatter: tooltipFormatter,
     },
     xAxis: {
       type:"time",
@@ -1023,6 +1058,29 @@ if (MODE === "live"){
     legend:{show:false},
     series: [],
   };
+
+  function tooltipFormatter(params){
+    if (!params || !params.length) return "";
+    const tsMs  = params[0].axisValue;
+    const tsStr = isNaN(tsMs) ? "" : new Date(tsMs).toISOString().slice(0,19).replace("T", " ") + " UTC";
+    const lines = [`<div style="font-weight:600;margin-bottom:4px">${tsStr}</div>`];
+    params.forEach(p => {
+      const v = p.value;
+      if (!Array.isArray(v)) return;
+      const isNorm  = v.length >= 3;
+      const display = isNorm ? v[2] : v[1];
+      if (display == null || isNaN(display)) return;
+      const t = byId.get(p.seriesName);
+      const unit = t && t.unit ? ` ${escapeHtml(t.unit)}` : "";
+      const normHint = isNorm ? ` <span style="color:#94a3b8">(norm ${fmtNum(v[1])})</span>` : "";
+      lines.push(
+        `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:6px;vertical-align:middle"></span>` +
+        `${escapeHtml(p.seriesName)}: <b>${fmtNum(display)}</b>${unit}${normHint}</div>`
+      );
+    });
+    return lines.join("");
+  }
+
   chart.setOption(baseOption);
 
   let pendingRedraw = false;
@@ -1045,7 +1103,9 @@ if (MODE === "live"){
       let data = t.points.slice(lo);
       if (normalize && data.length){
         const rng = (t.max - t.min) || 1;
-        data = data.map(p => [p[0], (p[1]-t.min)/rng]);
+        // 3rd element is the original value; the tooltip formatter uses it
+        // so hovering shows the engineering value, not the 0-1 normalized one.
+        data = data.map(p => [p[0], (p[1]-t.min)/rng, p[1]]);
       }
       series.push({
         name: t.label, type:"line", smooth, showSymbol:false, sampling:"lttb",
