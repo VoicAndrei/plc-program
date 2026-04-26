@@ -996,22 +996,6 @@ if (MODE === "live"){
     inp.focus();
   }
 
-  // Tolerant JSON read: aiohttp default error pages are plain text
-  // ("405: Method Not Allowed"), which would otherwise crash JSON.parse and
-  // surface as the cryptic "after JSON at position 3" SyntaxError.
-  async function readJsonOrText(r){
-    const text = await r.text();
-    try { return { json: JSON.parse(text), text }; }
-    catch(_){ return { json: null, text }; }
-  }
-  function explainErr(r, parsed){
-    if (parsed.json && parsed.json.error) return parsed.json.error;
-    const t = (parsed.text || "").trim();
-    if (r.status === 405)
-      return "Server doesn't recognize this endpoint — restart live_server.py to pick up changes.";
-    return t || r.statusText || `HTTP ${r.status}`;
-  }
-
   async function submitNewCategory(name){
     name = (name || "").trim();
     if (!name){ renderCategoryStrip(); return; }
@@ -1020,9 +1004,8 @@ if (MODE === "live"){
         method: "POST", headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name}),
       });
-      const p = await readJsonOrText(r);
-      if (!r.ok){ alert(explainErr(r, p)); renderCategoryStrip(); return; }
-      const j = p.json || {};
+      const j = await r.json();
+      if (!r.ok){ alert(j.error || r.statusText); renderCategoryStrip(); return; }
       allCategories = j.categories || [...allCategories, name];
       rebuildCatFilter();
       renderCategoryStrip();
@@ -1032,9 +1015,8 @@ if (MODE === "live"){
   async function deleteCategory(name){
     try {
       const r = await fetch(`./live/categories/${encodeURIComponent(name)}`, {method:"DELETE"});
-      const p = await readJsonOrText(r);
-      if (!r.ok){ alert(explainErr(r, p)); return; }
-      const j = p.json || {};
+      const j = await r.json();
+      if (!r.ok){ alert(j.error || r.statusText); return; }
       allCategories = j.categories || allCategories.filter(c => c !== name);
       rebuildCatFilter();
       renderCategoryStrip();
@@ -1581,20 +1563,6 @@ if (MODE === "live"){
     inp.focus();
   }
 
-  // Tolerant JSON read (see archive-mode counterpart for context)
-  async function readJsonOrText(r){
-    const text = await r.text();
-    try { return { json: JSON.parse(text), text }; }
-    catch(_){ return { json: null, text }; }
-  }
-  function explainErr(r, parsed){
-    if (parsed.json && parsed.json.error) return parsed.json.error;
-    const t = (parsed.text || "").trim();
-    if (r.status === 405)
-      return "Server doesn't recognize this endpoint — restart live_server.py.";
-    return t || r.statusText || `HTTP ${r.status}`;
-  }
-
   async function submitNewCategory(name){
     name = (name || "").trim();
     if (!name){ renderCategoryStrip(); return; }
@@ -1603,9 +1571,8 @@ if (MODE === "live"){
         method: "POST", headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name}),
       });
-      const p = await readJsonOrText(r);
-      if (!r.ok){ toast(explainErr(r, p), "err"); renderCategoryStrip(); return; }
-      const j = p.json || {};
+      const j = await r.json();
+      if (!r.ok){ toast(j.error || r.statusText, "err"); renderCategoryStrip(); return; }
       allCategories = j.categories || [...allCategories, name];
       rebuildCatFilter();
       renderCategoryStrip();
@@ -1616,9 +1583,8 @@ if (MODE === "live"){
   async function deleteCategory(name){
     try {
       const r = await fetch(`./live/categories/${encodeURIComponent(name)}`, {method:"DELETE"});
-      const p = await readJsonOrText(r);
-      if (!r.ok){ toast(explainErr(r, p), "err"); return; }
-      const j = p.json || {};
+      const j = await r.json();
+      if (!r.ok){ toast(j.error || r.statusText, "err"); return; }
       allCategories = j.categories || allCategories.filter(c => c !== name);
       rebuildCatFilter();
       renderCategoryStrip();
