@@ -95,6 +95,42 @@
   .lchip .x{color:var(--ink-4);margin-left:4px}
   .legend .hint{font-size:12px;color:var(--ink-3)}
 
+  /* Category chips: click body to plot every tag in that category, × to remove */
+  .cat-strip{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:8px 16px;border-top:1px solid var(--line);background:#fafbfc;
+  }
+  .cat-strip .label{font-size:12px;color:var(--ink-3);margin-right:4px}
+  .cat-chip{
+    display:inline-flex;align-items:center;gap:6px;font-size:12px;
+    padding:2px 4px 2px 10px;border:1px solid var(--line-2);border-radius:3px;
+    background:var(--panel);color:var(--ink-2);cursor:pointer;line-height:1.6;
+  }
+  .cat-chip:hover{border-color:var(--accent);color:var(--accent)}
+  .cat-chip .cnt{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+    color:var(--ink-3);background:#eef2f7;padding:0 6px;border-radius:9px;
+  }
+  .cat-chip .x{
+    background:transparent;border:0;color:var(--ink-4);font-size:14px;
+    padding:0 6px;cursor:pointer;border-radius:2px;line-height:1;
+  }
+  .cat-chip .x:hover{color:var(--bad);background:#fee2e2}
+  .cat-chip .x[disabled]{cursor:not-allowed;opacity:0.4}
+  .cat-chip .x[disabled]:hover{color:var(--ink-4);background:transparent}
+  .cat-strip .cat-add{
+    display:inline-flex;align-items:center;gap:4px;font-size:12px;
+    padding:3px 10px;border:1px dashed var(--line-2);border-radius:3px;
+    background:transparent;color:var(--ink-3);cursor:pointer;font-family:inherit;
+  }
+  .cat-strip .cat-add:hover{border-color:var(--accent);color:var(--accent)}
+  .cat-strip input.cat-new{
+    font-family:inherit;font-size:12px;padding:3px 8px;
+    border:1px solid var(--accent);border-radius:3px;background:var(--panel);
+    color:var(--ink);min-width:140px;
+  }
+  .cat-strip input.cat-new:focus{outline:2px solid var(--accent-soft)}
+
   /* Table */
   table.tags{width:100%;border-collapse:collapse;font-size:12.5px}
   table.tags thead th{
@@ -336,6 +372,10 @@
     </div>
   </div>
   <div id="chart"></div>
+  <div class="cat-strip no-print" id="cat-strip">
+    <span class="label">Categories</span>
+    <span class="hint" id="cat-empty" style="font-size:12px;color:var(--ink-3)">Loading…</span>
+  </div>
   <div class="legend" id="legend"><span class="hint">No tags selected.</span></div>
 </section>
 
@@ -519,8 +559,16 @@ if (MODE === "live"){
 
   // Populate filter dropdowns
   const fCat = document.getElementById("f-cat");
-  [...new Set(tags.map(t=>t.category))].sort().forEach(c =>
-    fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
+  let allCategories = (cat.categories && cat.categories.length)
+    ? [...cat.categories]
+    : [...new Set(tags.map(t=>t.category))].sort();
+  function rebuildCatFilter(){
+    const cur = fCat.value;
+    [...fCat.querySelectorAll("option")].slice(1).forEach(o => o.remove());
+    allCategories.forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`));
+    if ([...fCat.options].some(o => o.value === cur)) fCat.value = cur;
+  }
+  rebuildCatFilter();
   const fSrc = document.getElementById("f-src");
   fSrc.insertAdjacentHTML("beforeend", `<option value="${SOURCE_LABEL}">${SOURCE_LABEL}</option>`);
 
@@ -894,7 +942,111 @@ if (MODE === "live"){
 
   window.addEventListener("resize", () => chart.resize());
 
+  // ── Category strip (archive mode) ─────────────────────────────────
+  // Click a chip → plot every tag in that category (capped at MAX_PLOT).
+  // × removes the category (only if no tag uses it; server enforces).
+  // + New posts to /live/categories so the modal dropdown picks it up.
+  const catStrip = document.getElementById("cat-strip");
+
+  function renderCategoryStrip(){
+    catStrip.querySelectorAll(".cat-chip,.cat-add,.cat-new,#cat-empty").forEach(n => n.remove());
+    const counts = {};
+    tags.forEach(t => counts[t.category] = (counts[t.category] || 0) + 1);
+    if (!allCategories.length){
+      catStrip.insertAdjacentHTML("beforeend",
+        `<span class="hint" id="cat-empty" style="font-size:12px;color:var(--ink-3)">No categories yet.</span>`);
+    }
+    allCategories.forEach(c => {
+      const n = counts[c] || 0;
+      const chip = document.createElement("span");
+      chip.className = "cat-chip"; chip.dataset.cat = c;
+      chip.title = `Plot all ${n} tag(s) in '${c}'`;
+      chip.innerHTML = `<span>${escapeHtml(c)}</span><span class="cnt">${n}</span>` +
+        `<button class="x" title="${n ? `In use by ${n} tag(s)` : 'Remove category'}" ${n ? "disabled":""}>×</button>`;
+      chip.addEventListener("click", (ev) => {
+        if (ev.target.closest(".x")) return;
+        plotCategory(c);
+      });
+      const xBtn = chip.querySelector(".x");
+      if (!n) xBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (confirm(`Remove category '${c}'?`)) deleteCategory(c);
+      });
+      catStrip.appendChild(chip);
+    });
+    const addBtn = document.createElement("button");
+    addBtn.className = "cat-add"; addBtn.textContent = "+ New";
+    addBtn.addEventListener("click", openAddCategory);
+    catStrip.appendChild(addBtn);
+  }
+
+  function openAddCategory(){
+    if (catStrip.querySelector(".cat-new")) return;
+    catStrip.querySelector(".cat-add")?.remove();
+    const inp = document.createElement("input");
+    inp.className = "cat-new"; inp.placeholder = "category name";
+    inp.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") renderCategoryStrip();
+      else if (ev.key === "Enter") submitNewCategory(inp.value);
+    });
+    inp.addEventListener("blur", () => setTimeout(() => {
+      if (document.activeElement !== inp) renderCategoryStrip();
+    }, 100));
+    catStrip.appendChild(inp);
+    inp.focus();
+  }
+
+  async function submitNewCategory(name){
+    name = (name || "").trim();
+    if (!name){ renderCategoryStrip(); return; }
+    try {
+      const r = await fetch("./live/categories", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name}),
+      });
+      const j = await r.json();
+      if (!r.ok){ alert(j.error || r.statusText); renderCategoryStrip(); return; }
+      allCategories = j.categories || [...allCategories, name];
+      rebuildCatFilter();
+      renderCategoryStrip();
+    } catch(e){ alert(String(e)); renderCategoryStrip(); }
+  }
+
+  async function deleteCategory(name){
+    try {
+      const r = await fetch(`./live/categories/${encodeURIComponent(name)}`, {method:"DELETE"});
+      const j = await r.json();
+      if (!r.ok){ alert(j.error || r.statusText); return; }
+      allCategories = j.categories || allCategories.filter(c => c !== name);
+      rebuildCatFilter();
+      renderCategoryStrip();
+    } catch(e){ alert(String(e)); }
+  }
+
+  async function plotCategory(c){
+    const ids = tags.filter(t => t.category === c).map(t => t.id);
+    if (!ids.length){ alert(`No tags in '${c}'.`); return; }
+    const subset = ids.slice(0, MAX_PLOT);
+    const units = new Set(subset.map(id => byId.get(id).unit || ""));
+    if (units.size > 1 && !normalize){
+      normalize = true;
+      document.getElementById("btn-normalize").classList.add("on");
+    }
+    for (const id of subset){
+      if (!selected.has(id) && selected.size >= MAX_PLOT){
+        selected.delete(selected.values().next().value);
+      }
+      selected.add(id);
+    }
+    const need = subset.filter(id => !byId.get(id).loaded);
+    if (need.length) await loadPoints(need);
+    updateKpis();
+    rebuild();
+    renderTable();
+  }
+
   // Initial render. No auto-plotted seed: the user picks tags from the table.
+  renderCategoryStrip();
   renderTable();
   updateKpis();
   rebuild();
@@ -1019,8 +1171,16 @@ if (MODE === "live"){
 
   // ---- Filters ----------------------------------------------------------
   const fCat = document.getElementById("f-cat");
-  const categories = [...new Set(tags.map(t=>t.category))].sort();
-  categories.forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${c}">${c}</option>`));
+  let allCategories = (catalog.categories && catalog.categories.length)
+    ? [...catalog.categories]
+    : [...new Set(tags.map(t=>t.category))].sort();
+  function rebuildCatFilter(){
+    const cur = fCat.value;
+    [...fCat.querySelectorAll("option")].slice(1).forEach(o => o.remove());
+    allCategories.forEach(c => fCat.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`));
+    if ([...fCat.options].some(o => o.value === cur)) fCat.value = cur;
+  }
+  rebuildCatFilter();
   const fSrc = document.getElementById("f-src");
   fSrc.insertAdjacentHTML("beforeend", `<option value="${SOURCE_LABEL}">${SOURCE_LABEL}</option>`);
 
@@ -1350,6 +1510,128 @@ if (MODE === "live"){
 
   window.addEventListener("resize", () => chart.resize());
 
+  // ---- Category strip (live mode) --------------------------------------
+  // Same UX as archive mode: chip click plots all tags in the category;
+  // × removes (server refuses if any tag uses it); + New posts a custom.
+  const catStrip = document.getElementById("cat-strip");
+
+  function renderCategoryStrip(){
+    catStrip.querySelectorAll(".cat-chip,.cat-add,.cat-new,#cat-empty").forEach(n => n.remove());
+    const counts = {};
+    tags.forEach(t => counts[t.category] = (counts[t.category] || 0) + 1);
+    if (!allCategories.length){
+      catStrip.insertAdjacentHTML("beforeend",
+        `<span class="hint" id="cat-empty" style="font-size:12px;color:var(--ink-3)">No categories yet.</span>`);
+    }
+    allCategories.forEach(c => {
+      const n = counts[c] || 0;
+      const chip = document.createElement("span");
+      chip.className = "cat-chip"; chip.dataset.cat = c;
+      chip.title = `Plot all ${n} tag(s) in '${c}'`;
+      chip.innerHTML = `<span>${escapeHtml(c)}</span><span class="cnt">${n}</span>` +
+        `<button class="x" title="${n ? `In use by ${n} tag(s)` : 'Remove category'}" ${n ? "disabled":""}>×</button>`;
+      chip.addEventListener("click", (ev) => {
+        if (ev.target.closest(".x")) return;
+        plotCategory(c);
+      });
+      const xBtn = chip.querySelector(".x");
+      if (!n) xBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (confirm(`Remove category '${c}'?`)) deleteCategory(c);
+      });
+      catStrip.appendChild(chip);
+    });
+    const addBtn = document.createElement("button");
+    addBtn.className = "cat-add"; addBtn.textContent = "+ New";
+    addBtn.addEventListener("click", openAddCategory);
+    catStrip.appendChild(addBtn);
+  }
+
+  function openAddCategory(){
+    if (catStrip.querySelector(".cat-new")) return;
+    catStrip.querySelector(".cat-add")?.remove();
+    const inp = document.createElement("input");
+    inp.className = "cat-new"; inp.placeholder = "category name";
+    inp.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") renderCategoryStrip();
+      else if (ev.key === "Enter") submitNewCategory(inp.value);
+    });
+    inp.addEventListener("blur", () => setTimeout(() => {
+      if (document.activeElement !== inp) renderCategoryStrip();
+    }, 100));
+    catStrip.appendChild(inp);
+    inp.focus();
+  }
+
+  async function submitNewCategory(name){
+    name = (name || "").trim();
+    if (!name){ renderCategoryStrip(); return; }
+    try {
+      const r = await fetch("./live/categories", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name}),
+      });
+      const j = await r.json();
+      if (!r.ok){ toast(j.error || r.statusText, "err"); renderCategoryStrip(); return; }
+      allCategories = j.categories || [...allCategories, name];
+      rebuildCatFilter();
+      renderCategoryStrip();
+      toast(`Category '${name}' added`, "ok");
+    } catch(e){ toast(String(e), "err"); renderCategoryStrip(); }
+  }
+
+  async function deleteCategory(name){
+    try {
+      const r = await fetch(`./live/categories/${encodeURIComponent(name)}`, {method:"DELETE"});
+      const j = await r.json();
+      if (!r.ok){ toast(j.error || r.statusText, "err"); return; }
+      allCategories = j.categories || allCategories.filter(c => c !== name);
+      rebuildCatFilter();
+      renderCategoryStrip();
+      toast(`Category '${name}' removed`, "ok");
+    } catch(e){ toast(String(e), "err"); }
+  }
+
+  function plotCategory(c){
+    const ids = tags.filter(t => t.category === c).map(t => t.id);
+    if (!ids.length){ toast(`No tags in '${c}' yet.`, "err"); return; }
+    const subset = ids.slice(0, MAX_PLOT);
+    const units = new Set(subset.map(id => byId.get(id).unit || ""));
+    if (units.size > 1 && !normalize){
+      normalize = true;
+      document.getElementById("btn-normalize").classList.add("on");
+    }
+    for (const id of subset){
+      if (!selected.has(id) && selected.size >= MAX_PLOT){
+        selected.delete(selected.values().next().value);
+      }
+      if (!selected.has(id)){
+        selected.add(id);
+        backfillHistory(id);
+      }
+    }
+    rebuild();
+    renderTable();
+  }
+
+  // Refresh strip + modal options whenever the catalog changes
+  function fillModalCategoryOptions(){
+    const sel = document.getElementById("f-category");
+    if (!sel) return;
+    const prev = sel.value || "other";
+    sel.innerHTML = "";
+    const opts = allCategories.length ? allCategories : ["other"];
+    if (!opts.includes("other")) opts.unshift("other");
+    opts.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+    sel.value = opts.includes(prev) ? prev : "other";
+  }
+
+  renderCategoryStrip();
+
   // ---- Initial paint ----------------------------------------------------
   renderTable();
   rebuild();
@@ -1372,6 +1654,7 @@ if (MODE === "live"){
     ["f-name","f-node","f-unit","f-db","f-offset"].forEach(id => {
       const e = document.getElementById(id); if (e) e.value = "";
     });
+    fillModalCategoryOptions();
     document.getElementById("f-category").value = "other";
     document.getElementById("f-min").value = "0";
     document.getElementById("f-max").value = "100";
@@ -1545,13 +1828,13 @@ if (MODE === "live"){
       tags.length = 0; tags.push(...newTags);
       byId.clear(); newTags.forEach(t => byId.set(t.id, t));
 
-      // Refresh Category filter options without losing the current selection
-      const fCat = document.getElementById("f-cat");
-      const oldVal = fCat.value;
-      [...fCat.querySelectorAll("option")].slice(1).forEach(o => o.remove());
-      [...new Set(newTags.map(t=>t.category))].sort().forEach(c =>
-        fCat.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`));
-      if ([...fCat.options].some(o => o.value === oldVal)) fCat.value = oldVal;
+      // Categories: server returns the merged list (in-use + custom). Refresh
+      // the filter dropdown and the chip strip without losing current state.
+      allCategories = (j.categories && j.categories.length)
+        ? [...j.categories]
+        : [...new Set(newTags.map(t=>t.category))].sort();
+      rebuildCatFilter();
+      renderCategoryStrip();
 
       document.getElementById("m-tags").textContent = newTags.length + " channels";
       // Prime ring buffers for any newly-selected tags (none right now after add, but safe)
@@ -1651,16 +1934,7 @@ if (MODE === "live"){
           <input id="f-bit" class="addr-s7 s7-bit-row" type="number" min="0" max="7" step="1" value="0" />
 
           <label for="f-category">Category</label>
-          <select id="f-category">
-            <option>temperature</option>
-            <option>pressure</option>
-            <option>level</option>
-            <option>control</option>
-            <option>current</option>
-            <option>speed</option>
-            <option>vibration</option>
-            <option selected>other</option>
-          </select>
+          <select id="f-category"><option value="other">other</option></select>
 
           <label for="f-unit">Unit</label>
           <input id="f-unit" placeholder="°C, bar, mm, %, rpm…" />

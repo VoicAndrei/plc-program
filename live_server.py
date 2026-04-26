@@ -13,9 +13,12 @@ Config
                     effect without a process restart.
 
 HTTP endpoints
-  GET    /live/tags          → tag catalog + connection status
+  GET    /live/tags          → tag catalog + connection status (incl. categories)
   POST   /live/tags          → add a new tag (schema depends on backend)
   DELETE /live/tags/{name}   → remove a tag
+  GET    /live/categories    → list of user categories (custom + in-use)
+  POST   /live/categories    → add a custom category (`{"name": "..."}`)
+  DELETE /live/categories/{name} → remove a category (refuses if a tag uses it)
   GET    /live/browse        → walk PLC address space (OPC UA only; 501 on s7)
   GET    /live/history?tags=…&since=…&until=…&limit=…
                               → scrollback from SQLite
@@ -140,7 +143,35 @@ def load_tags(backend: str) -> list[dict]:
     return out
 
 
-def save_tags(tags: list[dict]):
+def load_categories() -> list[str]:
+    """User-defined categories from tags.yaml. May contain entries no tag
+    uses yet (pre-registered for upcoming tags)."""
+    raw = yaml.safe_load(TAGS_PATH.read_text()) or {}
+    cats = raw.get("categories") or []
+    seen, out = set(), []
+    for c in cats:
+        s = str(c).strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def merged_categories(tags: list[dict], custom: list[str]) -> list[str]:
+    """Categories actually in use on tags, plus user-registered customs."""
+    seen, out = set(), []
+    for t in tags:
+        c = (t.get("category") or "other").strip()
+        if c and c not in seen:
+            seen.add(c); out.append(c)
+    for c in custom:
+        if c not in seen:
+            seen.add(c); out.append(c)
+    return sorted(out)
+
+
+def save_config(tags: list[dict], categories: list[str]):
     """Atomic write to tags.yaml. Preserves header comment."""
     header = (
         "# Tag list. Managed by live_server.py (edits from the dashboard\n"
@@ -148,11 +179,22 @@ def save_tags(tags: list[dict]):
         "#\n"
         "# OPC UA tags carry: node\n"
         "# S7 tags carry:    area, offset, type, optional db, optional bit\n"
-        "# A tag may carry both for cross-backend reuse.\n\n"
+        "# A tag may carry both for cross-backend reuse.\n"
+        "# `categories` holds custom categories the dashboard should offer\n"
+        "# even when no tag is currently using them.\n\n"
     )
+    body: dict = {}
+    if categories:
+        body["categories"] = list(categories)
+    body["tags"] = tags
     tmp = TAGS_PATH.with_suffix(".yaml.tmp")
-    tmp.write_text(header + yaml.safe_dump({"tags": tags}, sort_keys=False, allow_unicode=True))
+    tmp.write_text(header + yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
     tmp.replace(TAGS_PATH)
+
+
+# Back-compat shim: existing callers pass tags only.
+def save_tags(tags: list[dict]):
+    save_config(tags, load_categories())
 
 
 def tag_from_payload(body: dict, backend: str) -> dict:
@@ -695,11 +737,14 @@ async def tags_watcher_task(app: web.Application):
                 last_mtime = mt
                 try:
                     new_tags = load_tags(app["backend_name"])
+                    new_cats = load_categories()
                 except Exception as e:
                     LOG.warning("tags.yaml invalid (%s), ignoring", e)
                     continue
                 app["tags"] = new_tags
-                LOG.info("tags.yaml reloaded, %d tags", len(new_tags))
+                app["categories"] = new_cats
+                LOG.info("tags.yaml reloaded, %d tags, %d custom categories",
+                         len(new_tags), len(new_cats))
                 mgr = app["mgr"]
                 await mgr.reconcile(new_tags)
         except asyncio.CancelledError:
@@ -749,7 +794,66 @@ async def handle_get_tags(request: web.Request):
     out = [_tag_to_wire(t) for t in app["tags"]]
     payload = _connection_payload(app)
     payload["tags"] = out
+    payload["categories"] = merged_categories(app["tags"], app["categories"])
     return web.json_response(payload)
+
+
+async def handle_get_categories(request: web.Request):
+    app = request.app
+    return web.json_response({
+        "categories": merged_categories(app["tags"], app["categories"]),
+        "custom": list(app["categories"]),
+    })
+
+
+async def handle_post_category(request: web.Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON"}, status=400)
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return web.json_response({"error": "name must not be empty"}, status=400)
+    if len(name) > 64 or any(c in name for c in "\n\r\t"):
+        return web.json_response({"error": "invalid category name"}, status=400)
+    app = request.app
+    existing = merged_categories(app["tags"], app["categories"])
+    if name in existing:
+        return web.json_response({"error": f"category '{name}' already exists"}, status=409)
+    new_custom = list(app["categories"]) + [name]
+    try:
+        save_config(list(app["tags"]), new_custom)
+    except Exception as e:
+        return web.json_response({"error": f"failed to save: {e}"}, status=500)
+    app["categories"] = new_custom
+    return web.json_response({
+        "ok": True,
+        "categories": merged_categories(app["tags"], new_custom),
+    })
+
+
+async def handle_delete_category(request: web.Request):
+    name = request.match_info["name"]
+    app = request.app
+    in_use = [t["name"] for t in app["tags"] if (t.get("category") or "other") == name]
+    if in_use:
+        return web.json_response(
+            {"error": f"category '{name}' is in use by {len(in_use)} tag(s)",
+             "tags": in_use},
+            status=409,
+        )
+    if name not in app["categories"]:
+        return web.json_response({"error": f"category '{name}' is not removable"}, status=404)
+    new_custom = [c for c in app["categories"] if c != name]
+    try:
+        save_config(list(app["tags"]), new_custom)
+    except Exception as e:
+        return web.json_response({"error": f"failed to save: {e}"}, status=500)
+    app["categories"] = new_custom
+    return web.json_response({
+        "ok": True, "deleted": name,
+        "categories": merged_categories(app["tags"], new_custom),
+    })
 
 
 async def handle_post_tag(request: web.Request):
@@ -895,6 +999,7 @@ async def on_startup(app: web.Application):
     app["conn"] = yaml.safe_load(CONN_PATH.read_text())
     app["backend_name"] = (app["conn"].get("backend") or "opcua").lower()
     app["tags"] = load_tags(app["backend_name"])
+    app["categories"] = load_categories()
     app["db"] = init_db(DB_PATH)
     app["ingest_q"] = asyncio.Queue(maxsize=10_000)
     app["sse_subs"] = []
@@ -924,6 +1029,9 @@ def make_app() -> web.Application:
     app.router.add_get ("/live/tags",          handle_get_tags)
     app.router.add_post("/live/tags",          handle_post_tag)
     app.router.add_delete("/live/tags/{name}", handle_delete_tag)
+    app.router.add_get ("/live/categories",          handle_get_categories)
+    app.router.add_post("/live/categories",          handle_post_category)
+    app.router.add_delete("/live/categories/{name}", handle_delete_category)
     app.router.add_get ("/live/browse",        handle_browse)
     app.router.add_get ("/live/range",         handle_range)
     app.router.add_get ("/live/history",       handle_history)
