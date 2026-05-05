@@ -162,17 +162,48 @@ python live_server.py          # terminal 2 — ingest + dashboard
 
 Open the dashboard URL above; values will be the sim's realistic waveforms.
 
-## Offline install (optional)
+## Deploying to an offline Windows PC (USB-stick workflow)
 
-If the target laptop can't reach PyPI, pre-download wheels on a machine
-that can:
+Plant PCs typically have no internet. Everything ships via USB stick.
+Here's the full sequence:
 
-```
-pip download -r requirements.txt -d wheels
-```
+**On a machine with internet** (the same Mac/Linux box you developed
+on, or another Windows machine):
 
-Copy the `wheels/` folder into the project directory on the target.
-`setup.bat` detects it automatically and installs offline.
+1. Pre-download the Python wheels for Windows:
+   - macOS / Linux: `./prepare_offline.sh` (defaults to Python 3.12;
+     pass `./prepare_offline.sh 3.11` to target a different minor
+     version).
+   - Windows: double-click `prepare_offline.bat`.
+
+   This drops every dependency into `./wheels/` as `*.whl` files.
+   `setup.bat` will use these directly with `pip install --no-index`
+   on the offline PC.
+
+2. Download the matching Python installer from
+   [python.org/downloads/windows](https://www.python.org/downloads/windows/),
+   e.g. `python-3.12.x-amd64.exe`. The minor version (3.12) must match
+   what you targeted in step 1.
+
+3. Copy the entire project folder (including `./wheels/`) and the
+   `python-3.12.x-amd64.exe` installer onto the USB stick.
+
+**On the offline PC**:
+
+4. Plug in the USB stick. Copy the project folder somewhere local
+   (e.g. `C:\plc-program`). Don't run it from the USB itself —
+   sticks vanish, removing your archive with them.
+5. Run the Python installer. **Tick "Add Python to PATH"** in the
+   installer.
+6. Double-click `setup.bat`. It detects `./wheels/`, installs every
+   dep offline, and creates a "PLC Dashboard" shortcut on the
+   Desktop.
+7. Edit `connection.yaml` (Notepad is fine) for the plant network.
+8. Double-click **PLC Dashboard**. Done.
+
+**If the wheels don't match the Python version on the offline PC**,
+`pip install` will fail with "no matching distribution". Re-run
+`prepare_offline.sh <correct-version>` and bring an updated stick.
 
 ## Troubleshooting
 
