@@ -513,6 +513,14 @@
       borderColor:"#2b3a2b",
       textStyle:{color:"#d6e4c7",fontFamily:"Azeret Mono",fontSize:11},
       padding:[8,12],
+      formatter: params => {
+        if (!params || !params.length) return "";
+        const d = new Date(params[0].axisValue);
+        const p = n => String(n).padStart(2,"0");
+        const head = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        const rows = params.map(s => `${s.marker}${s.seriesName}: <b>${(s.value && s.value[1] != null) ? Number(s.value[1]).toLocaleString(undefined,{maximumFractionDigits:2}) : "—"}</b>`).join("<br>");
+        return `${head}<br>${rows}`;
+      },
     },
     xAxis: {
       type:"time",

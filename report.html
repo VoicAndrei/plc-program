@@ -422,7 +422,7 @@
     </table>
   </div>
   <div class="panel-body footer-note">
-    Values are downsampled for plotting (LTTB‑style, ≤1500 points per tag). Statistics below are computed from the full raw archive. Timestamps in UTC.
+    Values are downsampled for plotting (LTTB‑style, ≤1500 points per tag). Statistics below are computed from the full raw archive. Timestamps in local time.
   </div>
 </section>
 
@@ -514,15 +514,16 @@ if (MODE === "live"){
 
   // ── Header meta ──────────────────────────────────────────────────────
   document.getElementById("m-label-1").textContent = "Generated";
-  document.getElementById("m-label-2").textContent = "Range (UTC)";
+  document.getElementById("m-label-2").textContent = "Range (local)";
   document.getElementById("m-label-3").textContent = "Tags";
   document.getElementById("m-label-4").textContent = "Source";
   document.getElementById("m-subtitle").textContent = "SQLite archive";
   document.getElementById("m-title").textContent    = "PLC telemetry, historical view";
   document.getElementById("m-badge-text").textContent = archiveBounds ? "Archive online" : "Archive empty";
-  function isoMin(ms){ return new Date(ms).toISOString().slice(0,16).replace("T"," "); }
+  function isoMin(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+  function fmtLocalSec(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
   function renderHeaderMeta(){
-    const ts = new Date().toISOString().replace("T"," ").slice(0,19) + " UTC";
+    const ts = fmtLocalSec(Date.now());
     document.getElementById("m-gen").textContent     = ts;
     document.getElementById("m-window").textContent  = isoMin(rangeMs.from) + " to " + isoMin(rangeMs.to);
     document.getElementById("m-tags").textContent    = tags.length + " channels";
@@ -581,7 +582,7 @@ if (MODE === "live"){
   function tooltipFormatter(params){
     if (!params || !params.length) return "";
     const tsMs  = params[0].axisValue;
-    const tsStr = isNaN(tsMs) ? "" : new Date(tsMs).toISOString().slice(0,19).replace("T", " ") + " UTC";
+    const tsStr = fmtLocalSec(tsMs);
     const lines = [`<div style="font-weight:600;margin-bottom:4px">${tsStr}</div>`];
     params.forEach(p => {
       const v = p.value;
@@ -631,7 +632,7 @@ if (MODE === "live"){
     },
     dataZoom:[
       {type:"inside",throttle:40},
-      {type:"slider",height:22,bottom:20,backgroundColor:"#fafbfc",dataBackground:{lineStyle:{color:"#cbd5e1"},areaStyle:{color:"#eef2f7"}},fillerColor:"rgba(29,78,216,0.10)",borderColor:"#e2e8f0",handleStyle:{color:"#1d4ed8",borderColor:"#1d4ed8"},textStyle:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:10},labelFormatter: v => { const d = new Date(v); return isNaN(d) ? "" : d.toISOString().slice(0,16).replace("T"," "); }},
+      {type:"slider",height:22,bottom:20,backgroundColor:"#fafbfc",dataBackground:{lineStyle:{color:"#cbd5e1"},areaStyle:{color:"#eef2f7"}},fillerColor:"rgba(29,78,216,0.10)",borderColor:"#e2e8f0",handleStyle:{color:"#1d4ed8",borderColor:"#1d4ed8"},textStyle:{color:"#64748b",fontFamily:"IBM Plex Mono",fontSize:10},labelFormatter: v => isoMin(v)},
     ],
     legend:{show:false},
     series: [],
@@ -836,17 +837,19 @@ if (MODE === "live"){
     document.getElementById("row-count").textContent = rows.length.toLocaleString() + " rows";
   }
 
-  // datetime-local <-> epoch helpers (treat input as UTC, matches DB timestamps)
+  // datetime-local <-> epoch helpers. The picker is interpreted as the host's
+  // local time so it matches the rest of the dashboard; the database still
+  // stores POSIX seconds, which Date(ms) converts to local on read.
   function epochToLocalInput(ms){
     const d = new Date(ms);
     const pad = n => String(n).padStart(2,"0");
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
   function localInputToEpoch(s){
     if (!s) return NaN;
     const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s);
     if (!m) return NaN;
-    return Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0));
+    return new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0)).getTime();
   }
 
   // Quick-range buttons. "all"/"first" need archive bounds; if the archive
@@ -1081,6 +1084,7 @@ if (MODE === "live"){
   const PALETTE = ["#1d4ed8","#0f766e","#b45309","#7c3aed","#be185d","#115e59","#0369a1","#a16207"];
   const RING_CAP = 10800;     // ~3 h @ 1 Hz, bounded per tag
   const MAX_PLOT = 30;
+  function fmtLocalSec(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 
   // ---- Load tag catalog -------------------------------------------------
   const catalog = await (await fetch("./live/tags", {cache:"no-store"})).json();
@@ -1125,14 +1129,14 @@ if (MODE === "live"){
   let latestSampleTs = null;
   let connected = false;
   const pageLoadMs = Date.now();
-  const pageLoadISO = new Date().toISOString();
+  const pageLoadLocal = fmtLocalSec(pageLoadMs);
 
   // ---- Header / meta ----------------------------------------------------
-  document.getElementById("m-gen").textContent = pageLoadISO.replace("T", " ").slice(0, 19) + "Z";
+  document.getElementById("m-gen").textContent = pageLoadLocal;
   document.getElementById("m-window").textContent = catalog.endpoint;
   document.getElementById("m-tags").textContent = tags.length + " channels";
   document.getElementById("m-sources").textContent = "0";
-  document.getElementById("f-gen").textContent = "Page loaded " + pageLoadISO.slice(0,19) + "Z";
+  document.getElementById("f-gen").textContent = "Page loaded " + pageLoadLocal;
 
   // Inject the Actions column header (live-only; archive mode never runs this IIFE)
   (() => {
@@ -1164,7 +1168,7 @@ if (MODE === "live"){
     kpiV[3].innerHTML = `${samplesSince.toLocaleString()}<span class="u">received</span>`;
     kpiV[4].innerHTML = `${humanDur(Math.round((Date.now()-pageLoadMs)/1000))}<span class="u"></span>`;
     kpiV[5].innerHTML = latestSampleTs
-      ? `${new Date(latestSampleTs*1000).toISOString().slice(11,19)}<span class="u">UTC</span>`
+      ? `${fmtLocalSec(latestSampleTs*1000).slice(11)}<span class="u"></span>`
       : `—<span class="u"></span>`;
     document.getElementById("m-sources").textContent = samplesSince.toLocaleString();
   }
@@ -1222,7 +1226,7 @@ if (MODE === "live"){
   function tooltipFormatter(params){
     if (!params || !params.length) return "";
     const tsMs  = params[0].axisValue;
-    const tsStr = isNaN(tsMs) ? "" : new Date(tsMs).toISOString().slice(0,19).replace("T", " ") + " UTC";
+    const tsStr = fmtLocalSec(tsMs);
     const lines = [`<div style="font-weight:600;margin-bottom:4px">${tsStr}</div>`];
     params.forEach(p => {
       const v = p.value;
@@ -1327,8 +1331,8 @@ if (MODE === "live"){
     let mn=Infinity, mx=-Infinity, sum=0;
     for (const [,v] of t.points){ if (v<mn) mn=v; if (v>mx) mx=v; sum+=v; }
     t.min=mn; t.max=mx; t.avg=sum/t.points.length; t.count=t.points.length;
-    t.first = new Date(t.points[0][0]).toISOString().replace("T"," ").slice(0,19);
-    t.last  = new Date(t.points[t.points.length-1][0]).toISOString().replace("T"," ").slice(0,19);
+    t.first = fmtLocalSec(t.points[0][0]);
+    t.last  = fmtLocalSec(t.points[t.points.length-1][0]);
   }
 
   function renderTable(){
