@@ -164,46 +164,46 @@ Open the dashboard URL above; values will be the sim's realistic waveforms.
 
 ## Deploying to an offline Windows PC (USB-stick workflow)
 
-Plant PCs typically have no internet. Everything ships via USB stick.
-Here's the full sequence:
+Plant PCs typically have no internet. The pipeline is: develop on
+your dev box → push → pull on a Windows PC that *does* have internet
+→ run `prepare_offline.bat` once → USB the folder to the air-gapped
+PC.
 
-**On a machine with internet** (the same Mac/Linux box you developed
-on, or another Windows machine):
+**On the Windows PC with internet** (after `git pull`):
 
-1. Pre-download the Python wheels for Windows:
-   - macOS / Linux: `./prepare_offline.sh` (defaults to Python 3.12;
-     pass `./prepare_offline.sh 3.11` to target a different minor
-     version).
-   - Windows: double-click `prepare_offline.bat`.
+1. Double-click `prepare_offline.bat`. It downloads two things into
+   the project folder:
+   - `python-3.12.x-amd64.exe` — the Python installer for the
+     air-gapped PC (~30 MB).
+   - `./wheels/` — every Python dep as a `*.whl`, ready for
+     `pip install --no-index`.
 
-   This drops every dependency into `./wheels/` as `*.whl` files.
-   `setup.bat` will use these directly with `pip install --no-index`
-   on the offline PC.
+   Both are `.gitignore`d so they never end up in commits. Re-run
+   the script after any pull that changed `requirements.txt`, or
+   when you want a newer Python patch.
 
-2. Download the matching Python installer from
-   [python.org/downloads/windows](https://www.python.org/downloads/windows/),
-   e.g. `python-3.12.x-amd64.exe`. The minor version (3.12) must match
-   what you targeted in step 1.
-
-3. Copy the entire project folder (including `./wheels/`) and the
-   `python-3.12.x-amd64.exe` installer onto the USB stick.
+2. Copy the entire project folder onto a USB stick.
 
 **On the offline PC**:
 
-4. Plug in the USB stick. Copy the project folder somewhere local
-   (e.g. `C:\plc-program`). Don't run it from the USB itself —
-   sticks vanish, removing your archive with them.
-5. Run the Python installer. **Tick "Add Python to PATH"** in the
-   installer.
-6. Double-click `setup.bat`. It detects `./wheels/`, installs every
+3. Plug in the USB stick. Copy the project folder somewhere local
+   (e.g. `C:\plc-program`). Don't run from the stick itself.
+4. Double-click `python-3.12.x-amd64.exe`. **Tick "Add Python to
+   PATH"** in the installer.
+5. Double-click `setup.bat`. It detects `./wheels/`, installs every
    dep offline, and creates a "PLC Dashboard" shortcut on the
    Desktop.
-7. Edit `connection.yaml` (Notepad is fine) for the plant network.
-8. Double-click **PLC Dashboard**. Done.
+6. Edit `connection.yaml` (Notepad is fine) for the plant network.
+7. Double-click **PLC Dashboard**. Server starts and the browser
+   opens. Closing the console window stops the server.
 
-**If the wheels don't match the Python version on the offline PC**,
-`pip install` will fail with "no matching distribution". Re-run
-`prepare_offline.sh <correct-version>` and bring an updated stick.
+**Python version pin.** `prepare_offline.bat` and `setup.bat` are
+both pinned to Python 3.12. If you bump it, edit `PY_VER` at the top
+of `prepare_offline.bat` and rerun on the internet-connected box.
+
+**Mac/Linux alternative.** `prepare_offline.sh` cross-downloads
+Windows wheels (e.g. for the rare case where you're staging the USB
+from a non-Windows box). The standard flow is the .bat above.
 
 ## Troubleshooting
 

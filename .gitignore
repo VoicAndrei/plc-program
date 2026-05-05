@@ -31,8 +31,10 @@ dashboard_data.json
 .idea/
 *.swp
 
-# Offline pip wheels cache (optional; git-ignore unless you're shipping via zip)
+# Offline deploy artifacts produced by prepare_offline.bat / .sh —
+# regenerated on demand, not worth shipping in git history.
 wheels/
+python-*-amd64.exe
 
 # Secrets (never commit — use env vars or a local-only file)
 .env.local
