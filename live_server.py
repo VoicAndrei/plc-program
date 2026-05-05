@@ -27,6 +27,7 @@ HTTP endpoints
 """
 import asyncio
 import contextlib
+import datetime
 import json
 import logging
 import os
@@ -267,7 +268,13 @@ class _OpcuaSubHandler:
             ts = time.time()
             mv = getattr(data, "monitored_item", None)
             if mv is not None and getattr(mv.Value, "SourceTimestamp", None):
-                ts = mv.Value.SourceTimestamp.timestamp()
+                src = mv.Value.SourceTimestamp
+                # asyncua hands us a naive datetime that already represents UTC.
+                # Calling .timestamp() on it would treat it as local time and
+                # shift the result by the local UTC offset (3h in DST here).
+                if src.tzinfo is None:
+                    src = src.replace(tzinfo=datetime.timezone.utc)
+                ts = src.timestamp()
             quality = 1
             if mv is not None and mv.Value.StatusCode and not mv.Value.StatusCode.is_good():
                 quality = 0

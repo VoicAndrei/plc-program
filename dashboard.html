@@ -299,7 +299,7 @@
     </div>
   </div>
   <div class="live reveal d2"><span class="dot"></span>Archive on-line</div>
-  <div class="clock reveal d3" id="clock">00:00:00 UTC</div>
+  <div class="clock reveal d3" id="clock">00:00:00</div>
 </header>
 
 <div class="stripe" id="stripe"></div>
@@ -528,7 +528,7 @@
     },
     dataZoom:[
       {type:"inside",throttle:40},
-      {type:"slider",height:28,bottom:20,backgroundColor:"#0c110d",dataBackground:{lineStyle:{color:"#2b3a2b"},areaStyle:{color:"#1a211a"}},fillerColor:"rgba(255,179,71,0.12)",borderColor:"#2b3a2b",handleStyle:{color:"#ffb347",borderColor:"#ffb347"},textStyle:{color:"#8a9a7c",fontFamily:"Azeret Mono",fontSize:10},labelFormatter: v => { const d = new Date(v); return isNaN(d) ? "" : d.toISOString().slice(0,16).replace("T"," "); }},
+      {type:"slider",height:28,bottom:20,backgroundColor:"#0c110d",dataBackground:{lineStyle:{color:"#2b3a2b"},areaStyle:{color:"#1a211a"}},fillerColor:"rgba(255,179,71,0.12)",borderColor:"#2b3a2b",handleStyle:{color:"#ffb347",borderColor:"#ffb347"},textStyle:{color:"#8a9a7c",fontFamily:"Azeret Mono",fontSize:10},labelFormatter: v => { const d = new Date(v); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }},
     ],
     legend:{show:false},
     series: [],
@@ -707,7 +707,7 @@
     const d = new Date();
     const pad = n => String(n).padStart(2,"0");
     document.getElementById("clock").textContent =
-      `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
   tick(); setInterval(tick, 1000);
 
