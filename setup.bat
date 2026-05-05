@@ -41,10 +41,14 @@ if errorlevel 1 (
 )
 
 echo.
+echo [plc-program] dependencies installed. Creating desktop shortcut...
+call "%~dp0create_shortcut.bat" --silent
+
+echo.
 echo [plc-program] setup complete. Next steps:
 echo   1. Edit connection.yaml — set endpoint to your PLC
 echo   2. (Optional) Set PLC_USER and PLC_PASS env vars
-echo   3. Double-click run.bat to start the server
-echo   4. Open http://localhost:8766/report.html?mode=live
+echo   3. Double-click "PLC Dashboard" on the Desktop.
+echo      (It starts the server and opens the browser automatically.)
 echo.
 pause

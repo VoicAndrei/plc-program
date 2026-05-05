@@ -33,11 +33,18 @@ an S7 tag list can coexist if you ever switch.
 ### Windows
 1. Install Python 3.10 or newer from [python.org](https://www.python.org/downloads/).
    **Important:** tick _"Add Python to PATH"_ in the installer.
-2. Double-click `setup.bat`. It creates a `.venv` and installs dependencies.
-3. Open `connection.yaml` in Notepad and set `endpoint` to your PLC's URL
-   (e.g. `opc.tcp://192.168.0.10:4840/...` — check TIA Portal → OPC UA).
-4. Double-click `run.bat`.
-5. Open [http://localhost:8766/report.html?mode=live](http://localhost:8766/report.html?mode=live).
+2. Double-click `setup.bat`. It creates a `.venv`, installs
+   dependencies, and drops a **"PLC Dashboard"** shortcut on the
+   Desktop.
+3. Open `connection.yaml` in Notepad and set the addressing details
+   for your PLC (OPC UA `endpoint`, or S7 `host`/`rack`/`slot`).
+4. Double-click **PLC Dashboard** on the Desktop. The server starts
+   in a console window and the browser opens automatically.
+   Closing that console window stops the server.
+
+If the shortcut ever gets deleted, re-run `create_shortcut.bat` to
+recreate it. `run.bat` still works as a no-frills alternative for
+developers who'd rather control browser/server independently.
 
 ### macOS / Linux
 ```bash
