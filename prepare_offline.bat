@@ -22,9 +22,11 @@ setlocal
 cd /d "%~dp0"
 
 REM Pinned Python — must match what setup.bat will run on the
-REM offline PC. Bump both the version and the URL together if
-REM you upgrade. Any 3.12.x patch level is wheel-compatible.
+REM offline PC. Bump all of these together if you upgrade. Any
+REM 3.12.x patch level is wheel-compatible.
 set PY_VER=3.12.7
+set PY_TAG=312
+set PY_ABI=cp312
 set PY_FILE=python-%PY_VER%-amd64.exe
 set PY_URL=https://www.python.org/ftp/python/%PY_VER%/%PY_FILE%
 
@@ -53,8 +55,19 @@ REM ── 2. Wheels ───────────────────�
 if exist wheels rmdir /s /q wheels
 mkdir wheels
 
-echo [plc-program] downloading wheels into .\wheels\
-python -m pip download --only-binary=:all: -r requirements.txt -d wheels
+echo [plc-program] downloading wheels for Python %PY_VER% (cp%PY_TAG%) into .\wheels\
+REM Pin the wheels to Python %PY_VER% regardless of the local Python on
+REM this machine. Without this, pip downloads wheels matching the local
+REM interpreter (e.g. cp314 if you have 3.14 installed), and they silently
+REM fail to install on the offline PC's 3.12.
+python -m pip download ^
+  --only-binary=:all: ^
+  --platform win_amd64 ^
+  --python-version %PY_TAG% ^
+  --implementation cp ^
+  --abi %PY_ABI% ^
+  -r requirements.txt ^
+  -d wheels
 if errorlevel 1 (
   echo [plc-program] wheels download failed.
   pause

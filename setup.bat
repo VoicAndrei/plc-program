@@ -18,6 +18,16 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM Always start from a fresh .venv. If the project folder was copied
+REM from another machine (e.g. via USB), the leftover .venv contains
+REM site-packages built for THAT machine's Python — including ABI-tagged
+REM .pyd files that won't load here. Nuking it forces pip to install
+REM matching binaries from .\wheels\.
+if exist .venv (
+  echo [plc-program] removing stale .venv from prior install...
+  rmdir /s /q .venv
+)
+
 echo [plc-program] creating virtual env (.venv)...
 python -m venv .venv
 if errorlevel 1 (
