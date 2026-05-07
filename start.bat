@@ -34,10 +34,23 @@ REM Spawn the browser-opener in the background; it polls the port
 REM and launches the default browser once the server is listening.
 start "" /B cmd /c ""%~dp0_open_browser.bat""
 
+if not exist "logs" mkdir logs
+
 echo [plc-program] starting live server on http://localhost:%PORT%
 echo [plc-program] the dashboard opens automatically when ready.
 echo [plc-program] CLOSE THIS WINDOW to stop the server.
+echo [plc-program] logs: .\logs\live.log
 echo.
-".venv\Scripts\python.exe" live_server.py
+
+REM Auto-restart loop. If python exits for any reason (uncaught
+REM exception, segfault in a C extension, killed by Task Manager)
+REM the server is back up within ~5 s. Closing this window kills
+REM the loop too — there's no way for the server to stay up while
+REM the launcher window is gone.
+:loop
+".venv\Scripts\python.exe" -u live_server.py 1>>"logs\live.log" 2>&1
+echo [plc-program] server exited (code %errorlevel%). Restarting in 5 s. Close window to stop.
+timeout /t 5 /nobreak >nul
+goto loop
 
 endlocal

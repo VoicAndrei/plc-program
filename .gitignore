@@ -24,6 +24,7 @@ dashboard_data.json
 # Logs
 *.log
 /tmp/*.log
+logs/
 
 # Editor / OS
 .DS_Store
