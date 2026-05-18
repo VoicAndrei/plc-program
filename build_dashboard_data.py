@@ -23,7 +23,8 @@ MAX_POINTS = 1500
 
 def ole_to_iso(time_ms: float) -> str:
     ole = time_ms / 1_000_000.0
-    return (OLE_EPOCH + timedelta(days=ole)).strftime("%Y-%m-%dT%H:%M:%S")
+    dt = OLE_EPOCH + timedelta(days=ole)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}"
 
 
 def downsample(points, target):

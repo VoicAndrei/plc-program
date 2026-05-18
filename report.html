@@ -521,7 +521,7 @@ if (MODE === "live"){
   document.getElementById("m-title").textContent    = "PLC telemetry, historical view";
   document.getElementById("m-badge-text").textContent = archiveBounds ? "Archive online" : "Archive empty";
   function isoMin(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
-  function fmtLocalSec(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+  function fmtLocalSec(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); const p3 = n => String(n).padStart(3,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p3(d.getMilliseconds())}`; }
   function renderHeaderMeta(){
     const ts = fmtLocalSec(Date.now());
     document.getElementById("m-gen").textContent     = ts;
@@ -1084,7 +1084,7 @@ if (MODE === "live"){
   const PALETTE = ["#1d4ed8","#0f766e","#b45309","#7c3aed","#be185d","#115e59","#0369a1","#a16207"];
   const RING_CAP = 10800;     // ~3 h @ 1 Hz, bounded per tag
   const MAX_PLOT = 30;
-  function fmtLocalSec(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+  function fmtLocalSec(ms){ const d = new Date(ms); if (isNaN(d)) return ""; const p = n => String(n).padStart(2,"0"); const p3 = n => String(n).padStart(3,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p3(d.getMilliseconds())}`; }
 
   // ---- Load tag catalog -------------------------------------------------
   const catalog = await (await fetch("./live/tags", {cache:"no-store"})).json();

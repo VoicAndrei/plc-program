@@ -517,7 +517,8 @@
         if (!params || !params.length) return "";
         const d = new Date(params[0].axisValue);
         const p = n => String(n).padStart(2,"0");
-        const head = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        const p3 = n => String(n).padStart(3,"0");
+        const head = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p3(d.getMilliseconds())}`;
         const rows = params.map(s => `${s.marker}${s.seriesName}: <b>${(s.value && s.value[1] != null) ? Number(s.value[1]).toLocaleString(undefined,{maximumFractionDigits:2}) : "—"}</b>`).join("<br>");
         return `${head}<br>${rows}`;
       },
